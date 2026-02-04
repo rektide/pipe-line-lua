@@ -64,6 +64,20 @@ log.error("Something went wrong")
 -- Messages are in app.outputQueue, ready for consumption
 ```
 
+## Testing
+
+Run the test suite using busted:
+
+```bash
+# Run all tests
+nvim -l tests/busted.lua
+
+# Run specific test file
+nvim -l tests/busted.lua tests/termichatter/unified_pipeline_spec.lua
+```
+
+Tests are organized by module in the `tests/termichatter/` directory.
+
 ## Architecture
 
 termichatter uses a pipeline architecture where messages flow through a series of handlers:
