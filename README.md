@@ -2,142 +2,692 @@
 
 > Asynchronous structured-data-flow atop coop.nvim, with a side of logging.
 
-# features
+## Table of Contents
 
-- optimize for low cost to send messages
-- ability to control individual modules alike `debug` npm module offers
-  - ability to adjust log level of each module as well
-- making a messages generates a very high resolution timestamp as soon as possible
-- multiple consumer implementations. the protocol is based on the contract.
-- basic receiver: an async receive loop
-  - uses a `driver` to get scheduled
-    - `interval` driver uses a fixed scheduling interval
-    - `rescheduler` driver fires a new run at the beginning or end of each iteration
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Modules](#modules)
+- [Pipeline](#pipeline)
+- [Sync and Async Pipeline Patterns](#sync-and-async-pipeline-patterns)
+- [Loggers](#loggers)
+- [Processors](#processors)
+- [Consumers](#consumers)
+- [Outputters](#outputters)
+- [Drivers](#drivers)
+- [Structured Messages](#structured-messages)
+- [API Reference](#api-reference)
 
-# architecture
+## Features
 
-a series of `pipeline` handlers which messages are passed through. these pipelines are backed by either synchronous passing of data to the next pipeline in the chain, or if there is a `queues` at that next element, must pass the data into the mpsc at queues, for it to be picked up asynchronously. as messages go through, they have a `pipeStep` index which is increased as it iterates. this is used to propogate the message forward. `pipeline` elements may be strings, in which case, lookup the string on the module and run that. if not present, advance to the next handler. if a `queue` is a function, invoke the function (with the message as self) to get a mpsc to pass to, or if empty, assume synchronous processing and move on immediately. if a `queue` is a string, lookup on the self and if truthy assume it is a mpsc to send to.
+- **Low-cost message sending** - synchronous fast path for logging, async processing downstream
+- **Module filtering** - npm `debug`-style pattern matching to control which modules emit logs
+- **Priority levels** - error, warn, info, log, debug, trace with filtering support
+- **High-resolution timestamps** - `vim.uv.hrtime()` captured at message creation
+- **CloudEvents compatible** - messages enriched with id, source, specversion, type
+- **Recursive context inheritance** - loggers inherit from modules inherit from parent modules
+- **Multiple output destinations** - buffer, file, fanout, JSON Lines
+- **Async queue processing** - coop.nvim mpsc queues for async stages
+- **Flexible drivers** - interval and rescheduler patterns for consumers
 
-| variable | value    | special handling                                                 |
-| -------- | -------- | ---------------------------------------------------------------- |
-| pipeline | function | runs, advanced `pipeStep`, then typically calls `log` to forward |
-| pipeline | string   | lookup the string on self and re-evalate                         |
+## Installation
 
-stages of the pipeline use https://tangled.org/jauntywk.bsky.social/mpsc-completion protocol to signal their work. they emit a `hello` export from the main module of `termichatter` to the mpsc on startup. they emit a `done` when . this is the only way for a handler to know that all messages above it are done. these messages are typically recommended to not be logged.
+Requires [coop.nvim](https://github.com/gregorias/coop.nvim) as a dependency.
 
-termichatter emphasizes a recursive context. messages might inherit from a logger which inherits from a module which inherits from another module which inherits from the main termichatter-nvim module. all elements of the context can be built on or redefined, at the appropriate level. this includes changing the packet flow for a message by altering it's `pipeline` or `queues`. it is recommended splice only from the current step downwards, to leave the previous steps and pipeStep intact. each handler has discretion on what to do!
+Using lazy.nvim:
+```lua
+{
+    "rektide/nvim-termichatter",
+    dependencies = { "gregorias/coop.nvim" },
+}
+```
 
-it is very important that functions attempt to use the `self` to invoke & refer to other components, to take advantage of this multi-modularity!
+## Quick Start
 
-## module
+```lua
+local termichatter = require("termichatter")
 
-a variety of key data structures and objects are provided on the top level module:
+-- Create a module for your application
+local app = termichatter.makePipeline({
+    source = "myapp:main",
+})
 
-| : field :            | : description :                                                                                            |
-| -------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `pipeline`           | list of handlers that is executed through in order (handler may route message elsewhere though             |
-| `queues`             | corresponding list of mpsc queues that messages traverse                                                   |
-| `ingester`           | function which decorates messages at log time                                                              |
-| `log`                | accepts a raw strcutured log message, running in pipeline                                                  |
-| `logger`             | factory function for making a logger                                                                       |
-| `baseLogger`         | the default logger factory for `logger`. relies on a module to do most of it's work                        |
-| `completion.hello`   | message sent when connecting to a mpsc                                                                     |
-| `completion.done`    | messages send when done transmitting to a mpsc                                                             |
-| `addProcessor`       | adds a new step to a pipeline, adding the processor at the specified position & making a new queue mpsc    |
-| `makePipeline`       | makes a new module, with it's own `pipeline`/`queues` pair, & copying all other fields onto the new module |
-| `timestamper`        | function to mint a timestamp                                                                               |
-| `driver`             | the driver for this module                                                                                 |
-| `drivers.interval`   | an interval driver                                                                                         |
-| `driver.rescheduler` | a re-occuring re-scheduler driver. optional backoff when it is quiet to reduce usage.                      |
+-- Create a logger
+local log = termichatter.baseLogger({ module = "startup" }, app)
 
-`termichatter` exposes a main module with all these fields. note however, new modules / universes can be spawned via `makePipeline`.
+-- Log messages at different priority levels
+log.info("Application starting")
+log.debug({ message = "Config loaded", config = { debug = true } })
+log.error("Something went wrong")
 
-## pipeline
+-- Messages are in app.outputQueue, ready for consumption
+```
 
-A default pipeline is:
+## Architecture
 
-| step | pipeline        |                                  | description | queue |
-| ---- | --------------- | -------------------------------- | ----------- | ----- |
-| 1    | `timestamper`   | runs timestmaper, whatever it is |
-| 2    | `ingester`      | empty by default, thus skipped   |
-| 3    | `cloudevents`   |                                  |
-| 4    | `module_filter` |                                  |
+termichatter uses a pipeline architecture where messages flow through a series of handlers:
 
-## structured events / messages
+```
+┌─────────┐    ┌────────────────────────────────────┐    ┌───────────┐
+│ Logger  │───▶│  Pipeline (sync or async stages)   │───▶│ OutputQueue│
+└─────────┘    └────────────────────────────────────┘    └───────────┘
+                  │                                            │
+                  ▼                                            ▼
+            timestamper                                  ┌───────────┐
+            ingester                                     │ Consumer  │
+            cloudevents                                  └───────────┘
+            module_filter                                      │
+                                                              ▼
+                                                        ┌───────────┐
+                                                        │ Outputter │
+                                                        └───────────┘
+```
 
-termichatter allows for arbitrary messages to be passed through. it's recommended messages remain structured data. the following fields are considered conventional & should be used if it makes sense.
+### Key Concepts
 
-the broad recommendation is to leverage otel semantic convention wherever possible!
+- **Module**: A context containing pipeline configuration, handlers, and inheritable fields
+- **Pipeline**: Array of handler names/functions executed in order
+- **Queues**: Optional mpsc queues at pipeline stages for async handoff
+- **Logger**: Callable that creates messages and sends through pipeline
+- **Consumer**: Async task that pops from queues and processes messages
+- **Outputter**: Writes messages to a destination (buffer, file, etc.)
 
-| field             | description                                                       |
-| ----------------- | ----------------------------------------------------------------- |
-| `time`            | timestamp at ingestion                                            |
-| `id`              | a unique uid                                                      |
-| `source`          | a url or colon separated uri describing the origin of the message |
-| `type`            | application distinct event type, using reverse domain notation    |
-| `datacontenttype` | mime type if appropriate                                          |
-| `timestamp`       | timestamp at ingestion                                            |
-| `priority`        | a string identifying the priority                                 |
+### Recursive Context
 
-## loggers
+termichatter emphasizes recursive context inheritance. A message might inherit context from:
 
-a logger is a function itself, that can log messages. it also _ought_ expose functions for `error` `log` `info` `warn` `debug` `trace` messages (in descending priority), that set the priority. termichatter is a general mpsc queue usable for many things, but one of it's primary goals is to make for easy structured logging: loggers are an example producer that makes that easy.
+```
+termichatter (root) → app module → auth module → jwt logger → message
+```
 
-loggers are a typical start of the pipeline, a common often the only tool to adds messages. loggers should be a function,
+Each level can override or extend fields from its parent. When looking up handlers, the system walks up the inheritance chain via metatables.
 
-the `baseLogger` is a simple logger factory, that tries to delegate as much work as it can to it's module.
+## Modules
 
-### baseLogger factory parameters
+Modules are the organizational unit. They hold pipeline configuration and provide context for loggers.
 
-baseLogger should capture all fields provided to it on the logger function it creates. these override the inherited module it points to.
+### Creating Modules
 
-the function produced by baseLogger should:
+```lua
+local termichatter = require("termichatter")
 
-- run `timestamper` on message if present
-- run `ingester` on message if present
+-- Create a root module
+local app = termichatter.makePipeline({
+    source = "myapp",
+    environment = "production",
+})
 
-Loggers use the module exports to do their work.
+-- Create child module (inherits from app)
+local auth = termichatter.makePipeline({
+    source = "myapp:auth",
+    component = "authentication",
+}, app)
 
-Loggers are usually structured, with a module, with a name. Termichatter itself has a termichatter module, and submodules.
+-- Child inherits parent's fields
+print(auth.environment)  -- "production"
+```
 
-## queue
+### Module Fields
 
-typically backed by a coop.nvim mpsc, these allow for async gathering of messages
+| Field | Description |
+|-------|-------------|
+| `pipeline` | Array of handler names executed in order |
+| `queues` | Corresponding array of mpsc queues (nil = sync) |
+| `outputQueue` | Final destination queue for processed messages |
+| `source` | Default source URI for messages |
+| `filter` | Pattern or function for module filtering |
+| `timestamper` | Function to add timestamps |
+| `ingester` | Function to decorate messages |
+| `cloudevents` | Function to add CloudEvents fields |
+| `module_filter` | Function to filter by source pattern |
 
-there is a default message queue, but creating special queues is also ok! loggers need to be pointed at the different queue.
+### Adding Processors
 
-## processor
+```lua
+-- Add a handler to the pipeline
+app:addProcessor("myHandler", function(msg, self)
+    msg.customField = "value"
+    return msg
+end)
 
-processors consume messages off one queue and forward them to another. typically they will write themselves into .defaultQueue and
+-- Add at specific position with queue
+app:addProcessor("asyncStage", handler, 2, true)  -- position 2, with queue
+```
 
-| : processor :         | : description :                         |
-| --------------------- | --------------------------------------- |
-| `ModuleFilter`        | npm `debug` style filter system         |
-| `CloudEventsEnricher` | stamps cloudevents fields onto object : |
+## Pipeline
 
-## outputter
+The pipeline is the heart of message processing. Each stage can transform, enrich, or filter messages.
 
-outputters consume messages off one or more mpsc, and do something with them
+### Default Pipeline
 
-outputters by default will try to read from `.defaultOutputQueue` and if that is not present (it typically isn't) they read from .defaultQueue
+| Step | Handler | Description |
+|------|---------|-------------|
+| 1 | `timestamper` | Adds `time` field via `vim.uv.hrtime()` |
+| 2 | `ingester` | Custom decoration (no-op by default) |
+| 3 | `cloudevents` | Adds `id`, `source`, `specversion` |
+| 4 | `module_filter` | Filters by source/module pattern |
 
-| outputter | desc                     |
-| --------- | ------------------------ |
-| `buffer`  | appends to buffer        |
-| `fan-out` | runs multiple outputters |
-| `file`    | appends to a file        |
+### How `log()` Works
 
-| parameter            | description                                                                                   |
-| -------------------- | --------------------------------------------------------------------------------------------- |
-| `buffer.n`           | buffer number to write to                                                                     |
-| `fan-out.outputters` | list of outputters to write to                                                                |
-| `file.filename`      | file name to write to. path component moved to `dir` if provided                              |
-| `file.dir`           | directory to write to, defaults to cwd, set if filename provided as relative or absolute path |
+```lua
+termichatter.log(msg, self)
+```
 
-## `log`
+1. Sets `msg.pipeStep = 1` if not present
+2. For each step in `self.pipeline`:
+   - Check if `self.queues[step]` exists
+   - If queue: push message and return (async handoff)
+   - If no queue: resolve handler, run it, advance step
+3. Handler returning `nil` stops processing (filtered)
+4. After all stages, push to `self.outputQueue`
 
-log is a function that does most of the work of sending messages through the pipeline. looks for a `pipeStep` to start from, or sets to 0 and starts. fires the handler.
+### Handler Resolution
 
-# to research
+Pipeline entries can be:
 
-- what would we want to borrow from pino? what are the core architectural facets defining pino?
+| Type | Behavior |
+|------|----------|
+| `function` | Called directly with `(msg, self)` |
+| `string` | Looked up on `self`, then evaluated |
+
+## Sync and Async Pipeline Patterns
+
+termichatter supports flexible combinations of synchronous and asynchronous processing.
+
+### Pattern 1: Fully Synchronous (Default)
+
+All pipeline stages run synchronously. Messages land in `outputQueue` immediately.
+
+```lua
+local app = termichatter.makePipeline({ source = "myapp" })
+local log = termichatter.baseLogger({}, app)
+
+log.info("This runs synchronously through all stages")
+-- Message is now in app.outputQueue
+```
+
+**Use when**: Low latency is critical, processing is fast, no blocking operations.
+
+### Pattern 2: Sync Pipeline → Async Consumer
+
+The default pattern. Pipeline runs sync, then async consumers process from `outputQueue`.
+
+```lua
+local coop = require("coop")
+local outputters = require("termichatter.outputters")
+
+local app = termichatter.makePipeline({ source = "myapp" })
+
+-- Async consumer writes to buffer
+local bufOut = outputters.buffer({ n = bufnr, queue = app.outputQueue })
+coop.spawn(function()
+    bufOut:start()  -- loops on queue:pop()
+end)
+
+-- Logging is still fast (sync)
+local log = termichatter.baseLogger({}, app)
+log.info("Fast sync logging")
+log.debug("Consumer processes async")
+```
+
+**Use when**: Fast logging path needed, output can be batched/async.
+
+### Pattern 3: Async Stage Within Pipeline
+
+Insert a queue mid-pipeline to hand off to async processing.
+
+```lua
+local MpscQueue = require("coop.mpsc-queue").MpscQueue
+local coop = require("coop")
+
+local app = termichatter.makePipeline({ source = "myapp" })
+
+-- Insert queue at step 3 (after ingester, before cloudevents)
+local asyncQueue = MpscQueue.new()
+app.queues[3] = asyncQueue
+
+-- Consumer continues pipeline from step 3
+coop.spawn(function()
+    while true do
+        local msg = asyncQueue:pop()
+        if msg.type == "termichatter.completion.done" then break end
+        
+        -- Continue from where we left off
+        msg.pipeStep = msg.pipeStep + 1
+        termichatter.log(msg, app)
+    end
+end)
+```
+
+**Use when**: Some stages are slow/blocking (network, disk), want to free up caller.
+
+### Pattern 4: Fully Async Consumer Pipeline
+
+Use the `consumer` module to build entirely async processing chains.
+
+```lua
+local consumer = require("termichatter.consumer")
+local MpscQueue = require("coop.mpsc-queue").MpscQueue
+
+local inputQ = MpscQueue.new()
+local outputQ = MpscQueue.new()
+
+local pipeline = consumer.createPipeline({
+    { handlers = { enricher } },
+    { handlers = { filter } },
+    { handlers = { formatter } },
+}, inputQ, outputQ)
+
+pipeline:start()  -- spawns async tasks for each stage
+
+-- Push messages (from sync code)
+pipeline:push({ message = "hello" })
+pipeline:finish()  -- signals completion
+```
+
+**Use when**: All processing can be async, want concurrent stage execution.
+
+### Pattern 5: Hybrid with Dynamic Queue Selection
+
+Use a function for queue selection based on message content.
+
+```lua
+local app = termichatter.makePipeline({ source = "myapp" })
+
+-- Queue selection function
+app.queues[3] = function(msg)
+    if msg.priority == "error" then
+        return app.errorQueue  -- fast path for errors
+    end
+    return app.normalQueue  -- normal async path
+end
+```
+
+**Use when**: Different messages need different processing paths.
+
+### Pattern 6: Fan-out to Multiple Consumers
+
+Single producer, multiple async consumers.
+
+```lua
+local outputters = require("termichatter.outputters")
+
+local app = termichatter.makePipeline({ source = "myapp" })
+
+local fan = outputters.fanout({
+    queue = app.outputQueue,
+    outputters = {
+        outputters.buffer({ n = logBuffer }),
+        outputters.file({ filename = "app.log" }),
+        outputters.jsonl({ filename = "events.jsonl" }),
+    },
+})
+
+coop.spawn(function() fan:start() end)
+```
+
+### Completion Protocol
+
+When using async queues, signal completion with:
+
+```lua
+queue:push(termichatter.completion.done)
+-- or
+queue:push({ type = "termichatter.completion.done" })
+```
+
+Consumers check for this message type to know when to stop.
+
+## Loggers
+
+Loggers are the primary API for sending messages. They're callable tables with priority methods.
+
+### Creating Loggers
+
+```lua
+local log = termichatter.baseLogger({
+    source = "myapp:auth",
+    module = "jwt",
+    userId = 123,  -- custom field included in all messages
+}, parentModule)
+```
+
+### Logging Messages
+
+```lua
+-- String message
+log.info("User logged in")
+
+-- Structured message
+log.error({
+    message = "Authentication failed",
+    code = 401,
+    attempts = 3,
+})
+
+-- Direct call (no priority)
+log({ message = "Raw event", type = "myapp.custom" })
+```
+
+### Priority Levels
+
+| Method | Level | Use Case |
+|--------|-------|----------|
+| `log.error()` | 1 | Errors requiring attention |
+| `log.warn()` | 2 | Warnings, degraded state |
+| `log.info()` | 3 | Normal operational messages |
+| `log.log()` | 4 | General logging |
+| `log.debug()` | 5 | Debug information |
+| `log.trace()` | 6 | Detailed tracing |
+
+### Logger Context
+
+Access the logger's context:
+
+```lua
+local log = termichatter.baseLogger({ module = "auth" }, app)
+print(log.ctx.module)   -- "auth"
+print(log.ctx.source)   -- inherited from app
+```
+
+## Processors
+
+Processors are async queue consumers that transform or filter messages.
+
+```lua
+local processors = require("termichatter.processors")
+```
+
+### ModuleFilter
+
+npm `debug`-style filtering by source/module patterns.
+
+```lua
+local filter = processors.ModuleFilter({
+    patterns = { "^myapp:auth", "^myapp:api" },  -- include these
+    exclude = { "verbose" },                      -- exclude these
+    inputQueue = inputQ,
+    outputQueue = outputQ,
+})
+
+coop.spawn(function() filter:start() end)
+```
+
+### CloudEventsEnricher
+
+Stamps CloudEvents spec fields onto messages.
+
+```lua
+local enricher = processors.CloudEventsEnricher({
+    source = "https://myapp.example.com",
+    type = "myapp.log.v1",
+})
+```
+
+### PriorityFilter
+
+Filters by log level.
+
+```lua
+local filter = processors.PriorityFilter({
+    minLevel = 1,  -- error
+    maxLevel = 3,  -- info (excludes debug, trace)
+})
+
+-- Dynamic adjustment
+filter:setMinLevel("warn")
+```
+
+### Transformer
+
+Custom transformation function.
+
+```lua
+local transformer = processors.Transformer({
+    transform = function(msg)
+        msg.processed_at = os.time()
+        if msg.sensitive then
+            msg.data = "[REDACTED]"
+        end
+        return msg  -- or nil to filter
+    end,
+})
+```
+
+## Consumers
+
+The consumer module provides async message processing from queues.
+
+```lua
+local consumer = require("termichatter.consumer")
+```
+
+### Single Consumer
+
+```lua
+local c = consumer.create({
+    inputQueue = inputQ,
+    outputQueue = outputQ,
+    handlers = {
+        function(msg) msg.step1 = true; return msg end,
+        function(msg) return msg.keep and msg or nil end,
+    },
+})
+
+local task = c:spawn()  -- returns coop Task
+-- ... later
+c:stop()
+```
+
+### Consumer Pipeline
+
+Chain multiple consumers with intermediate queues:
+
+```lua
+local pipeline = consumer.createPipeline({
+    { handlers = { timestamper } },
+    { handlers = { enricher, validator } },
+    { handlers = { formatter } },
+}, inputQ, outputQ)
+
+local tasks = pipeline:start()
+
+pipeline:push({ message = "hello" })
+pipeline:push({ message = "world" })
+pipeline:finish()
+
+-- Wait for completion
+for _, task in ipairs(tasks) do
+    task:await(1000, 10)
+end
+```
+
+## Outputters
+
+Outputters consume from queues and write to destinations.
+
+```lua
+local outputters = require("termichatter.outputters")
+```
+
+### Buffer Outputter
+
+Writes to a Neovim buffer.
+
+```lua
+local bufOut = outputters.buffer({
+    n = vim.api.nvim_create_buf(false, true),
+    queue = app.outputQueue,
+    format = function(msg)  -- optional custom formatter
+        return string.format("[%s] %s", msg.priority, msg.message)
+    end,
+})
+
+coop.spawn(function() bufOut:start() end)
+```
+
+### File Outputter
+
+Appends to a file.
+
+```lua
+local fileOut = outputters.file({
+    filename = "/var/log/myapp.log",
+    queue = app.outputQueue,
+})
+```
+
+### JSON Lines Outputter
+
+Writes messages as JSON Lines (one JSON object per line).
+
+```lua
+local jsonOut = outputters.jsonl({
+    filename = "events.jsonl",
+    queue = app.outputQueue,
+})
+```
+
+### Fanout Outputter
+
+Forwards to multiple outputters.
+
+```lua
+local fan = outputters.fanout({
+    queue = app.outputQueue,
+    outputters = { bufOut, fileOut, jsonOut },
+})
+
+-- Add more dynamically
+fan:add(anotherOutputter)
+```
+
+## Drivers
+
+Drivers schedule periodic execution for consumers.
+
+### Interval Driver
+
+Fixed interval scheduling.
+
+```lua
+local driver = termichatter.drivers.interval(100, function()
+    -- Called every 100ms
+    processMessages()
+end)
+
+driver.start()
+-- ... later
+driver.stop()
+```
+
+### Rescheduler Driver
+
+Adaptive rescheduling with optional backoff when idle.
+
+```lua
+local driver = termichatter.drivers.rescheduler({
+    interval = 50,       -- base interval
+    backoff = 1.5,       -- multiply by this when idle
+    maxInterval = 2000,  -- cap at 2 seconds
+}, function()
+    local hadWork = processMessages()
+    return hadWork  -- return true to reset interval
+end)
+```
+
+## Structured Messages
+
+Messages are Lua tables with conventional fields based on CloudEvents spec.
+
+### Standard Fields
+
+| Field | Description |
+|-------|-------------|
+| `time` | High-resolution timestamp (hrtime nanoseconds) |
+| `id` | Unique identifier (UUID v4) |
+| `source` | Origin URI (e.g., "myapp:auth:jwt") |
+| `type` | Event type in reverse domain notation |
+| `specversion` | CloudEvents version ("1.0") |
+| `priority` | Log level name (error, warn, info, etc.) |
+| `priorityLevel` | Numeric priority (1-6) |
+| `message` | Human-readable message string |
+| `module` | Module name within source |
+| `pipeStep` | Current pipeline step (internal) |
+
+### Custom Fields
+
+Add any fields you need:
+
+```lua
+log.info({
+    message = "Request completed",
+    duration_ms = 42,
+    status_code = 200,
+    user_id = "abc123",
+    request_id = req.id,
+})
+```
+
+### OpenTelemetry Compatibility
+
+For OTEL semantic conventions, use standard attribute names:
+
+```lua
+log.info({
+    message = "HTTP request",
+    ["http.method"] = "GET",
+    ["http.url"] = "/api/users",
+    ["http.status_code"] = 200,
+})
+```
+
+## API Reference
+
+### termichatter (main module)
+
+| Function | Description |
+|----------|-------------|
+| `makePipeline(config, parent)` | Create new module |
+| `baseLogger(config, parent)` | Create logger |
+| `log(msg, self)` | Send message through pipeline |
+| `addProcessor(self, name, handler, pos, withQueue)` | Add pipeline stage |
+| `timestamper(msg)` | Add timestamp |
+| `cloudevents(msg, self)` | Add CloudEvents fields |
+| `module_filter(msg, self)` | Filter by pattern |
+| `uuid()` | Generate UUID v4 |
+| `completion.hello` | Hello signal message |
+| `completion.done` | Done signal message |
+| `drivers.interval(ms, cb)` | Create interval driver |
+| `drivers.rescheduler(config, cb)` | Create rescheduler driver |
+
+### processors module
+
+| Function | Description |
+|----------|-------------|
+| `ModuleFilter(config)` | Pattern-based source filter |
+| `CloudEventsEnricher(config)` | Add CE fields |
+| `PriorityFilter(config)` | Filter by log level |
+| `Transformer(config)` | Custom transform |
+
+### outputters module
+
+| Function | Description |
+|----------|-------------|
+| `buffer(config)` | Write to nvim buffer |
+| `file(config)` | Append to file |
+| `jsonl(config)` | Write JSON Lines |
+| `fanout(config)` | Forward to multiple |
+
+### consumer module
+
+| Function | Description |
+|----------|-------------|
+| `create(config)` | Create single consumer |
+| `createPipeline(stages, inputQ, outputQ)` | Create consumer chain |
+| `withDriver(config)` | Add driver to consumer |
+
+## License
+
+MIT
