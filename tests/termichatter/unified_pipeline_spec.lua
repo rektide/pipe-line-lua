@@ -91,14 +91,14 @@ describe("termichatter unified pipeline", function()
 			end
 
 			-- Start consumers
-			local tasks = termichatter.startConsumers(module)
+			local tasks = termichatter.consumers.startConsumers(module)
 			assert.are.equal(1, #tasks) -- one queue = one consumer
 
 			-- Log message
 			termichatter.log({ message = "test" }, module)
 
 			-- Signal completion
-			termichatter.finish(module)
+			termichatter.consumers.finish(module)
 
 			-- Wait for consumer
 			tasks[1]:await(200, 10)
@@ -142,14 +142,14 @@ describe("termichatter unified pipeline", function()
 			end
 
 			-- Start consumers for both queues
-			local tasks = termichatter.startConsumers(module)
+			local tasks = 			termichatter.consumers.startConsumers(module)
 			assert.are.equal(2, #tasks)
 
 			-- Log message
 			termichatter.log({ message = "test" }, module)
 
 			-- Signal completion
-			termichatter.finish(module)
+			termichatter.consumers.finish(module)
 
 			-- Wait for all consumers
 			for _, task in ipairs(tasks) do
@@ -179,7 +179,7 @@ describe("termichatter unified pipeline", function()
 			end
 
 			-- Start consumers - consumer is waiting on pop()
-			local tasks = termichatter.startConsumers(module)
+			local tasks = 			termichatter.consumers.startConsumers(module)
 
 			-- Log - pushes to queue, which resumes waiting consumer
 			-- Consumer processes message immediately when resumed by push
@@ -189,7 +189,7 @@ describe("termichatter unified pipeline", function()
 			assert.are.same({ 1, 2 }, steps)
 
 			-- Signal completion and wait
-			termichatter.finish(module)
+			termichatter.consumers.finish(module)
 			tasks[1]:await(200, 10)
 
 			-- Task should be complete
@@ -215,7 +215,7 @@ describe("termichatter unified pipeline", function()
 			end
 
 			-- Start consumers - consumer waiting on pop()
-			local tasks = termichatter.startConsumers(module)
+			local tasks = 			termichatter.consumers.startConsumers(module)
 
 			-- Log - runs step1 sync, then pushes to queue
 			-- Push resumes consumer which runs step2 immediately
@@ -225,7 +225,7 @@ describe("termichatter unified pipeline", function()
 			assert.are.same({ 1, 2 }, steps)
 
 			-- Signal completion and wait
-			termichatter.finish(module)
+			termichatter.consumers.finish(module)
 			tasks[1]:await(200, 10)
 
 			-- Task complete
@@ -284,14 +284,14 @@ describe("termichatter unified pipeline", function()
 				return msg
 			end
 
-			local tasks = termichatter.startConsumers(module)
+			local tasks = 			termichatter.consumers.startConsumers(module)
 
 			-- Log two messages, one will be filtered
 			-- Each message is fully processed before next (sync resume on push)
 			termichatter.log({ message = "keep" }, module) -- step1, filter, step3
 			termichatter.log({ message = "drop", drop = true }, module) -- step1, filter (stops)
 
-			termichatter.finish(module)
+			termichatter.consumers.finish(module)
 			tasks[1]:await(200, 10)
 
 			-- First message: step1 → filter → step3
@@ -319,14 +319,14 @@ describe("termichatter unified pipeline", function()
 				return msg
 			end
 
-			local tasks = termichatter.startConsumers(module)
+			local tasks = 			termichatter.consumers.startConsumers(module)
 
 			-- Log 5 messages
 			for i = 1, 5 do
 				termichatter.log({ n = i }, module)
 			end
 
-			termichatter.finish(module)
+			termichatter.consumers.finish(module)
 			tasks[1]:await(200, 10)
 
 			-- All received in order
@@ -353,9 +353,9 @@ describe("termichatter unified pipeline", function()
 				return msg
 			end
 
-			local tasks = termichatter.startConsumers(module)
+			local tasks = 			termichatter.consumers.startConsumers(module)
 
-			termichatter.finish(module)
+			termichatter.consumers.finish(module)
 
 			-- Wait for all consumers to finish
 			for _, task in ipairs(tasks) do
@@ -387,13 +387,13 @@ describe("termichatter unified pipeline", function()
 				return msg
 			end
 
-			local tasks = termichatter.startConsumers(module)
+			local tasks = 			termichatter.consumers.startConsumers(module)
 
 			-- Tasks should be running (waiting on pop)
 			assert.are.equal("suspended", tasks[1]:status())
 
 			-- Stop them
-			termichatter.stopConsumers(module)
+			termichatter.consumers.stopConsumers(module)
 
 			-- Give it a moment to cancel
 			vim.wait(50, function()
@@ -424,7 +424,7 @@ describe("termichatter unified pipeline", function()
 
 			-- Manually set pipeStep and continue
 			local msg = { message = "test", pipeStep = 1 }
-			termichatter.continue(msg, module)
+			termichatter.consumers.continue(msg, module)
 
 			-- Both steps ran (continue runs step1, then log runs step2)
 			assert.are.same({ 1, 2 }, steps)
@@ -440,7 +440,7 @@ describe("termichatter unified pipeline", function()
 			end
 
 			local msg = { message = "test", pipeStep = 1 }
-			local result = termichatter.continue(msg, module)
+			local result = termichatter.consumers.continue(msg, module)
 
 			assert.is_nil(result)
 		end)
