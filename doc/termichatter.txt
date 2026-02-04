@@ -1,0 +1,286 @@
+*termichatter.txt*  Asynchronous structured-data-flow for Neovim
+
+Author:  rektide
+License: MIT
+
+==============================================================================
+CONTENTS                                               *termichatter-contents*
+
+    1. Introduction ............................ |termichatter-introduction|
+    2. Quick Start ............................ |termichatter-quickstart|
+    3. Modules ................................ |termichatter-modules|
+    4. Pipeline ............................... |termichatter-pipeline|
+    5. Loggers ................................ |termichatter-loggers|
+    6. Processors ............................. |termichatter-processors|
+    7. Outputters ............................. |termichatter-outputters|
+    8. Consumers .............................. |termichatter-consumers|
+    9. Drivers ................................ |termichatter-drivers|
+
+==============================================================================
+1. INTRODUCTION                                    *termichatter-introduction*
+
+termichatter is an asynchronous structured-data-flow library built on top of
+coop.nvim. It provides a pipeline-based message processing system with:
+
+- Low-cost message sending
+- Debug-style module filtering  
+- High-resolution timestamps
+- CloudEvents-compatible message format
+- Multiple output destinations
+- Async queue-based processing
+
+==============================================================================
+2. QUICK START                                      *termichatter-quickstart*
+
+Basic usage: >lua
+    local termichatter = require("termichatter")
+    
+    -- Create a module with custom source
+    local module = termichatter.makePipeline({
+        source = "myapp:main",
+    })
+    
+    -- Create a logger
+    local log = termichatter.baseLogger({
+        module = "startup",
+    }, module)
+    
+    -- Log messages
+    log.info("Application starting")
+    log.debug("Initializing subsystems")
+    log.error({ message = "Failed to connect", code = 500 })
+<
+
+==============================================================================
+3. MODULES                                            *termichatter-modules*
+
+Modules are the core organizational unit. They define pipeline configuration,
+handlers, and context that loggers inherit from.
+
+                                                  *termichatter.makePipeline()*
+termichatter.makePipeline({config}, {parent})
+    Create a new module with its own pipeline.
+    
+    Parameters: ~
+        {config}   Optional configuration table
+        {parent}   Optional parent module to inherit from
+    
+    Returns: ~
+        Module table with pipeline, queues, and outputQueue
+
+Example: >lua
+    local root = termichatter.makePipeline({
+        source = "myapp",
+        environment = "production",
+    })
+    
+    local child = termichatter.makePipeline({
+        source = "myapp:auth",
+    }, root)  -- inherits from root
+<
+
+                                                  *termichatter.addProcessor()*
+module:addProcessor({name}, {handler}, {position}, {withQueue})
+    Add a processor to the module's pipeline.
+    
+    Parameters: ~
+        {name}      String name for the handler
+        {handler}   Function to process messages
+        {position}  Optional position in pipeline (default: end)
+        {withQueue} Optional boolean to create queue at this position
+
+==============================================================================
+4. PIPELINE                                          *termichatter-pipeline*
+
+The pipeline is a series of handlers that messages pass through. Handlers
+can be synchronous (direct function calls) or async (via mpsc queues).
+
+Default pipeline stages:
+    1. timestamper - Adds high-resolution timestamp
+    2. ingester    - Custom message decoration (no-op by default)
+    3. cloudevents - Adds CloudEvents fields (id, source, specversion)
+    4. module_filter - Filters by source/module pattern
+
+                                                           *termichatter.log()*
+termichatter.log({msg}, {self})
+    Send a message through the pipeline.
+    
+    Parameters: ~
+        {msg}   Message table to process
+        {self}  Optional module context (default: main module)
+
+==============================================================================
+5. LOGGERS                                            *termichatter-loggers*
+
+Loggers are callable tables that make sending structured messages easy.
+They inherit from their parent module.
+
+                                                    *termichatter.baseLogger()*
+termichatter.baseLogger({config}, {parent})
+    Create a logger.
+    
+    Parameters: ~
+        {config}  Optional configuration overrides
+        {parent}  Optional parent module to inherit from
+    
+    Returns: ~
+        Callable logger table with priority methods
+
+Logger methods:
+    logger({msg})        Log a message
+    logger.error({msg})  Log with error priority (level 1)
+    logger.warn({msg})   Log with warn priority (level 2)
+    logger.info({msg})   Log with info priority (level 3)
+    logger.log({msg})    Log with log priority (level 4)
+    logger.debug({msg})  Log with debug priority (level 5)
+    logger.trace({msg})  Log with trace priority (level 6)
+
+Example: >lua
+    local log = termichatter.baseLogger({
+        source = "myapp:auth",
+        module = "jwt",
+    })
+    
+    log.info("User authenticated")
+    log.error({ message = "Auth failed", userId = 123 })
+<
+
+==============================================================================
+6. PROCESSORS                                      *termichatter-processors*
+
+Processors consume messages from one queue, transform/filter them, and
+forward to another queue.
+
+Available processors (require("termichatter.processors")):
+
+                                                 *processors.ModuleFilter()*
+ModuleFilter({config})
+    npm `debug`-style filter by source/module patterns.
+    
+    Config: ~
+        {patterns}  Array of patterns to include (default: {".*"})
+        {exclude}   Array of patterns to exclude
+
+                                             *processors.CloudEventsEnricher()*
+CloudEventsEnricher({config})
+    Stamps CloudEvents fields onto messages.
+    
+    Config: ~
+        {source}  Default source URI
+        {type}    Default event type
+
+                                                 *processors.PriorityFilter()*
+PriorityFilter({config})
+    Filters by log level.
+    
+    Config: ~
+        {minLevel}  Minimum priority level (1=error to 6=trace)
+        {maxLevel}  Maximum priority level
+
+                                                    *processors.Transformer()*
+Transformer({config})
+    Applies custom transform function.
+    
+    Config: ~
+        {transform}  Function(msg) -> msg or nil
+
+==============================================================================
+7. OUTPUTTERS                                      *termichatter-outputters*
+
+Outputters consume messages from a queue and write to a destination.
+
+Available outputters (require("termichatter.outputters")):
+
+                                                       *outputters.buffer()*
+buffer({config})
+    Write to a Neovim buffer.
+    
+    Config: ~
+        {n}       Buffer number
+        {format}  Optional format function(msg) -> string
+
+                                                         *outputters.file()*
+file({config})
+    Append to a file.
+    
+    Config: ~
+        {filename}  File path
+        {dir}       Optional directory (extracted from filename if absolute)
+        {format}    Optional format function
+
+                                                       *outputters.fanout()*
+fanout({config})
+    Forward to multiple outputters.
+    
+    Config: ~
+        {outputters}  Array of outputter tables
+
+                                                        *outputters.jsonl()*
+jsonl({config})
+    Write as JSON Lines.
+    
+    Config: ~
+        {filename}  File path
+
+==============================================================================
+8. CONSUMERS                                        *termichatter-consumers*
+
+Consumers (require("termichatter.consumer")) provide async message processing
+from queues using coop.nvim.
+
+                                                         *consumer.create()*
+consumer.create({config})
+    Create an async consumer.
+    
+    Config: ~
+        {inputQueue}   Input MpscQueue
+        {handlers}     Array of handler functions
+        {outputQueue}  Optional output MpscQueue
+
+Methods:
+    consumer:spawn()   Start as async task, returns Task
+    consumer:stop()    Stop processing
+    consumer:process({msg})  Process single message synchronously
+
+                                                  *consumer.createPipeline()*
+consumer.createPipeline({stages}, {inputQueue}, {outputQueue})
+    Create connected pipeline of consumers.
+    
+    Parameters: ~
+        {stages}       Array of {handlers: function[]} configs
+        {inputQueue}   Initial input queue
+        {outputQueue}  Final output queue
+
+Methods:
+    pipeline:start()   Start all consumers, returns array of Tasks
+    pipeline:push({msg})  Push message to pipeline
+    pipeline:finish()  Signal completion
+
+==============================================================================
+9. DRIVERS                                            *termichatter-drivers*
+
+Drivers schedule periodic execution (for polling or batch processing).
+
+                                                  *termichatter.drivers.interval()*
+termichatter.drivers.interval({interval}, {callback})
+    Fixed interval driver.
+    
+    Parameters: ~
+        {interval}  Milliseconds between calls
+        {callback}  Function to call
+
+                                               *termichatter.drivers.rescheduler()*
+termichatter.drivers.rescheduler({config}, {callback})
+    Adaptive rescheduling driver with optional backoff.
+    
+    Config: ~
+        {interval}     Base interval in milliseconds
+        {backoff}      Multiplier when idle (default: 1)
+        {maxInterval}  Maximum interval (default: 5000)
+
+Driver methods:
+    driver.start()  Begin scheduling
+    driver.stop()   Stop scheduling
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:
