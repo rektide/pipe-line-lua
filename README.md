@@ -193,7 +193,63 @@ Pipeline entries can be:
 
 ## Sync and Async Pipeline Patterns
 
-termichatter supports flexible combinations of synchronous and asynchronous processing.
+termichatter uses a **unified pipeline model** where sync and async stages are interleaved in a single `pipeline`/`queues` pair. The `queues` array is parallel to `pipeline` - if `queues[i]` is non-nil, that stage is async.
+
+### The Unified Model
+
+```lua
+local MpscQueue = require("coop.mpsc-queue").MpscQueue
+
+local app = termichatter.makePipeline({ source = "myapp" })
+
+-- Define pipeline stages
+app.pipeline = { "validate", "enrich", "filter", "format" }
+
+-- Define which stages are async (nil = sync)
+app.queues = { nil, MpscQueue.new(), nil, MpscQueue.new() }
+--              sync   async         sync   async
+
+-- Define handlers
+app.validate = function(msg, self) ... end
+app.enrich = function(msg, self) ... end
+app.filter = function(msg, self) ... end
+app.format = function(msg, self) ... end
+
+-- Start consumers for async stages
+local tasks = termichatter.startConsumers(app)
+
+-- Log messages - sync stages run immediately, async stages hand off
+local log = termichatter.baseLogger({}, app)
+log.info("Message flows through interleaved sync/async stages")
+
+-- When done, signal completion
+termichatter.finish(app)
+
+-- Wait for consumers to complete
+for _, task in ipairs(tasks) do
+    task:await(1000, 10)
+end
+```
+
+### How It Works
+
+1. **Sync stages**: Handler runs immediately, advances to next step
+2. **Async stages**: Message pushed to queue, control returns to caller
+3. **Consumers**: `startConsumers()` spawns tasks that pop from queues and continue the pipeline
+4. **Resumption**: When a consumer processes a message, it runs the handler at that step, then calls `log()` to continue through remaining stages
+5. **Completion**: `finish()` sends a done message through all queues
+
+```
+log() ─→ [step1 sync] ─→ [step2 queue] ─→ return
+                              │
+                    consumer pops, runs step2
+                              │
+                         [step3 sync] ─→ [step4 queue] ─→ done
+                                              │
+                                    consumer pops, runs step4
+                                              │
+                                         outputQueue
+```
 
 ### Pattern 1: Fully Synchronous (Default)
 
@@ -209,9 +265,9 @@ log.info("This runs synchronously through all stages")
 
 **Use when**: Low latency is critical, processing is fast, no blocking operations.
 
-### Pattern 2: Sync Pipeline → Async Consumer
+### Pattern 2: Sync Pipeline → Async Output Consumer
 
-The default pattern. Pipeline runs sync, then async consumers process from `outputQueue`.
+Pipeline runs sync, then async consumers process from `outputQueue`.
 
 ```lua
 local coop = require("coop")
@@ -233,38 +289,49 @@ log.debug("Consumer processes async")
 
 **Use when**: Fast logging path needed, output can be batched/async.
 
-### Pattern 3: Async Stage Within Pipeline
+### Pattern 3: Interleaved Sync/Async Stages
 
-Insert a queue mid-pipeline to hand off to async processing.
+Use `startConsumers()` to automatically spawn consumers for async stages in the pipeline.
 
 ```lua
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
-local coop = require("coop")
 
 local app = termichatter.makePipeline({ source = "myapp" })
 
--- Insert queue at step 3 (after ingester, before cloudevents)
-local asyncQueue = MpscQueue.new()
-app.queues[3] = asyncQueue
+-- Custom pipeline with async at step 2
+app.pipeline = { "validate", "slowEnrich", "format" }
+app.queues = { nil, MpscQueue.new(), nil }
 
--- Consumer continues pipeline from step 3
-coop.spawn(function()
-    while true do
-        local msg = asyncQueue:pop()
-        if msg.type == "termichatter.completion.done" then break end
-        
-        -- Continue from where we left off
-        msg.pipeStep = msg.pipeStep + 1
-        termichatter.log(msg, app)
-    end
-end)
+app.validate = function(msg, self)
+    -- runs sync
+    return msg
+end
+app.slowEnrich = function(msg, self)
+    -- runs async (after consumer picks up)
+    msg.enriched = true
+    return msg
+end
+app.format = function(msg, self)
+    -- runs sync (after slowEnrich)
+    return msg
+end
+
+-- Start consumers - spawns task for the queue at step 2
+local tasks = termichatter.startConsumers(app)
+
+-- Log messages
+local log = termichatter.baseLogger({}, app)
+log.info("validate runs sync, slowEnrich async, format continues sync")
+
+-- Signal completion when done
+termichatter.finish(app)
 ```
 
 **Use when**: Some stages are slow/blocking (network, disk), want to free up caller.
 
-### Pattern 4: Fully Async Consumer Pipeline
+### Pattern 4: Standalone Consumer Pipeline
 
-Use the `consumer` module to build entirely async processing chains.
+The `consumer` module provides an alternative for building entirely separate async processing chains.
 
 ```lua
 local consumer = require("termichatter.consumer")
@@ -286,7 +353,7 @@ pipeline:push({ message = "hello" })
 pipeline:finish()  -- signals completion
 ```
 
-**Use when**: All processing can be async, want concurrent stage execution.
+**Use when**: Building a separate processing chain outside the main module pipeline.
 
 ### Pattern 5: Hybrid with Dynamic Queue Selection
 
@@ -652,6 +719,12 @@ log.info({
 | `makePipeline(config, parent)` | Create new module |
 | `baseLogger(config, parent)` | Create logger |
 | `log(msg, self)` | Send message through pipeline |
+| `continue(msg, self)` | Continue message from current pipeStep |
+| `startConsumers(self)` | Spawn consumers for all queues in pipeline |
+| `stopConsumers(self)` | Cancel running consumer tasks |
+| `finish(self)` | Signal completion to pipeline |
+| `makeQueueConsumer(queue, step, self)` | Create consumer function for a queue |
+| `isCompletion(msg)` | Check if message is completion signal |
 | `addProcessor(self, name, handler, pos, withQueue)` | Add pipeline stage |
 | `timestamper(msg)` | Add timestamp |
 | `cloudevents(msg, self)` | Add CloudEvents fields |
