@@ -1,9 +1,76 @@
---- Processors consume messages from one queue and forward to another
---- They transform or filter messages as they pass through
+--- Pipeline stage handlers and processor classes
 local M = {}
 
 local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
+
+--- Default timestamper using high-resolution clock
+---@param msg table the message to timestamp
+---@return table msg the timestamped message
+M.timestamper = function(msg)
+	if not msg.time then
+		msg.time = vim.uv.hrtime()
+	end
+	return msg
+end
+
+--- Default ingester (no-op, can be overridden)
+---@param msg table the message
+---@return table msg the message unchanged
+M.ingester = function(msg)
+	return msg
+end
+
+--- CloudEvents enricher - stamps standard fields onto messages
+---@param msg table the message to enrich
+---@param self table the module context
+---@return table msg the enriched message
+M.cloudevents = function(msg, self)
+	if not msg.id then
+		msg.id = M.uuid()
+	end
+	if not msg.source and self.source then
+		msg.source = self.source
+	end
+	if not msg.specversion then
+		msg.specversion = "1.0"
+	end
+	return msg
+end
+
+--- Generate a simple UUID v4
+---@return string uuid
+M.uuid = function()
+	local random = math.random
+	local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+	return string.gsub(template, "[xy]", function(c)
+		local v = (c == "x") and random(0, 0xf) or random(8, 0xb)
+		return string.format("%x", v)
+	end)
+end
+
+--- Module filter - npm `debug` style filter system
+--- Filters messages based on module name patterns
+---@param msg table the message
+---@param self table the module context
+---@return table|nil msg the message or nil if filtered
+M.module_filter = function(msg, self)
+	local filter = self.filter
+	if not filter then
+		return msg
+	end
+	local source = msg.source or msg.module or ""
+	if type(filter) == "string" then
+		if string.match(source, filter) then
+			return msg
+		end
+		return nil
+	elseif type(filter) == "function" then
+		return filter(msg, self) and msg or nil
+	end
+	return msg
+end
+
 
 --- ModuleFilter processor - npm `debug` style filter system
 --- Filters messages based on module/source patterns
