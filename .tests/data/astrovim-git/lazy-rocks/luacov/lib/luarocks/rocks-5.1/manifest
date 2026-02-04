@@ -1,0 +1,143 @@
+commands = {
+   luacov = {
+      "luacov/0.16.0-1"
+   }
+}
+dependencies = {
+   datafile = {
+      ["0.11-1"] = {
+         {
+            constraints = {
+               {
+                  op = ">=",
+                  version = {
+                     5, 1, string = "5.1"
+                  }
+               }
+            },
+            name = "lua"
+         }
+      }
+   },
+   luacov = {
+      ["0.16.0-1"] = {
+         {
+            constraints = {
+               {
+                  op = ">=",
+                  version = {
+                     5, 1, string = "5.1"
+                  }
+               }
+            },
+            name = "lua"
+         },
+         {
+            constraints = {},
+            name = "datafile"
+         }
+      }
+   }
+}
+modules = {
+   datafile = {
+      "datafile/0.11-1"
+   },
+   ["datafile.openers.caller"] = {
+      "datafile/0.11-1"
+   },
+   ["datafile.openers.luarocks"] = {
+      "datafile/0.11-1"
+   },
+   ["datafile.openers.unix"] = {
+      "datafile/0.11-1"
+   },
+   ["datafile.openers.xdg"] = {
+      "datafile/0.11-1"
+   },
+   ["datafile.util"] = {
+      "datafile/0.11-1"
+   },
+   luacov = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.defaults"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.hook"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.linescanner"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.reporter"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.reporter.default"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.reporter.html"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.reporter.html.template"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.runner"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.stats"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.tick"] = {
+      "luacov/0.16.0-1"
+   },
+   ["luacov.util"] = {
+      "luacov/0.16.0-1"
+   }
+}
+repository = {
+   datafile = {
+      ["0.11-1"] = {
+         {
+            arch = "installed",
+            commands = {},
+            dependencies = {},
+            modules = {
+               datafile = "datafile.lua",
+               ["datafile.openers.caller"] = "datafile/openers/caller.lua",
+               ["datafile.openers.luarocks"] = "datafile/openers/luarocks.lua",
+               ["datafile.openers.unix"] = "datafile/openers/unix.lua",
+               ["datafile.openers.xdg"] = "datafile/openers/xdg.lua",
+               ["datafile.util"] = "datafile/util.lua"
+            }
+         }
+      }
+   },
+   luacov = {
+      ["0.16.0-1"] = {
+         {
+            arch = "installed",
+            commands = {
+               luacov = "luacov"
+            },
+            dependencies = {
+               datafile = "0.11-1"
+            },
+            modules = {
+               luacov = "luacov.lua",
+               ["luacov.defaults"] = "luacov/defaults.lua",
+               ["luacov.hook"] = "luacov/hook.lua",
+               ["luacov.linescanner"] = "luacov/linescanner.lua",
+               ["luacov.reporter"] = "luacov/reporter.lua",
+               ["luacov.reporter.default"] = "luacov/reporter/default.lua",
+               ["luacov.reporter.html"] = "luacov/reporter/html.lua",
+               ["luacov.reporter.html.template"] = "luacov/reporter/html/template.lua",
+               ["luacov.runner"] = "luacov/runner.lua",
+               ["luacov.stats"] = "luacov/stats.lua",
+               ["luacov.tick"] = "luacov/tick.lua",
+               ["luacov.util"] = "luacov/util.lua"
+            }
+         }
+      }
+   }
+}

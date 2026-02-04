@@ -1,0 +1,7 @@
+# Test artifacts
+.tests/
+
+# Lua artifacts
+*.luac
+luacov.stats.out
+luacov.report.out

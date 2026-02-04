@@ -1,0 +1,16 @@
+!_TAG_FILE_ENCODING	utf-8	//
+busted-in-a-shell-or-in-your-shell-s-rc-file	busted.md	/# In a shell or in your shell's RC file:
+busted-run-on-an-entire-project	busted.md	/# Run on an entire project
+busted-run-on-one-directory	busted.md	/# Run on one directory:
+busted-thereafter-just-run	busted.md	/# Thereafter just run:
+busted-use-as-a-ci-job	busted.md	/### Use as a CI job
+luacov-configuration	luacov.md	/## Configuration
+luacov-credits	luacov.md	/## Credits
+luacov-custom-reporter-engines	luacov.md	/## Custom reporter engines
+luacov-download-and-installation	luacov.md	/## Download and Installation
+luacov-html-reporter	luacov.md	/## Html reporter
+luacov-instructions	luacov.md	/## Instructions
+luacov-overview	luacov.md	/## Overview
+luacov-status	luacov.md	/## Status
+luacov-using-development-version	luacov.md	/## Using development version
+luacov-usr-bin-env-lua-lluacov-tick	luacov.md	/#!\/usr\/bin\/env lua -lluacov.tick
