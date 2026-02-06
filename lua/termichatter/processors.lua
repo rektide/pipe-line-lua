@@ -4,6 +4,9 @@ local M = {}
 local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
+-- Seed random once at module load for UUID generation
+math.randomseed(vim.uv.hrtime())
+
 --- Default timestamper using high-resolution clock
 ---@param msg table the message to timestamp
 ---@return table msg the timestamped message
