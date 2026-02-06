@@ -10,6 +10,9 @@ local pipelineMod = require("termichatter.pipeline")
 
 -- Re-export common fields for backwards compatibility
 M.completion = M.protocol
+M.isCompletion = M.protocol.isCompletion
+M.isShutdown = M.protocol.isShutdown
+M.createCompletionTracker = M.protocol.createCompletionTracker
 M.timestamper = M.processors.timestamper
 M.ingester = M.processors.ingester
 M.cloudevents = M.processors.cloudevents

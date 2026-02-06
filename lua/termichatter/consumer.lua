@@ -3,6 +3,7 @@
 local M = {}
 
 local coop = require("coop")
+local protocol = require("termichatter.protocol")
 
 --- Create an async consumer that processes messages from a queue
 --- Runs handlers in order and forwards to next queue or outputter
@@ -42,21 +43,31 @@ M.create = function(config)
 			running = true
 			while running do
 				local msg = self.inputQueue:pop()
+				if not msg then
+					break
+				end
 
-				-- Check for completion signal
-				if msg.type == "termichatter.completion.done" then
+				-- Check for shutdown signal - forward and exit
+				if protocol.isShutdown(msg) then
 					if self.outputQueue then
 						self.outputQueue:push(msg)
 					end
 					break
 				end
 
-				-- Process message
-				local result = self:process(msg)
+				-- Forward completion signals without processing
+				if protocol.isCompletion(msg) then
+					if self.outputQueue then
+						self.outputQueue:push(msg)
+					end
+				else
+					-- Process regular message
+					local result = self:process(msg)
 
-				-- Forward to output queue if present
-				if result and self.outputQueue then
-					self.outputQueue:push(result)
+					-- Forward to output queue if present
+					if result and self.outputQueue then
+						self.outputQueue:push(result)
+					end
 				end
 			end
 			running = false
@@ -151,7 +162,7 @@ M.createPipeline = function(stages, inputQueue, outputQueue)
 
 		--- Signal completion to the pipeline
 		finish = function(self)
-			self.queues[1]:push({ type = "termichatter.completion.done" })
+			self.queues[1]:push(vim.deepcopy(protocol.shutdown))
 		end,
 	}
 end

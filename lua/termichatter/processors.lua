@@ -3,6 +3,7 @@ local M = {}
 
 local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
+local protocol = require("termichatter.protocol")
 
 -- Seed random once at module load for UUID generation
 math.randomseed(vim.uv.hrtime())
@@ -127,13 +128,20 @@ M.ModuleFilter = function(config)
 		start = function(self)
 			while true do
 				local msg = self.inputQueue:pop()
-				if msg.type == "termichatter.completion.done" then
+				if not msg then
+					break
+				end
+				if protocol.isShutdown(msg) then
 					self.outputQueue:push(msg)
 					break
 				end
-				local result = self:process(msg)
-				if result then
-					self.outputQueue:push(result)
+				if protocol.isCompletion(msg) then
+					self.outputQueue:push(msg)
+				else
+					local result = self:process(msg)
+					if result then
+						self.outputQueue:push(result)
+					end
 				end
 			end
 		end,
@@ -193,12 +201,19 @@ M.CloudEventsEnricher = function(config)
 		start = function(self)
 			while true do
 				local msg = self.inputQueue:pop()
-				if msg.type == "termichatter.completion.done" then
+				if not msg then
+					break
+				end
+				if protocol.isShutdown(msg) then
 					self.outputQueue:push(msg)
 					break
 				end
-				local result = self:process(msg)
-				self.outputQueue:push(result)
+				if protocol.isCompletion(msg) then
+					self.outputQueue:push(msg)
+				else
+					local result = self:process(msg)
+					self.outputQueue:push(result)
+				end
 			end
 		end,
 	}
@@ -241,13 +256,20 @@ M.PriorityFilter = function(config)
 		start = function(self)
 			while true do
 				local msg = self.inputQueue:pop()
-				if msg.type == "termichatter.completion.done" then
+				if not msg then
+					break
+				end
+				if protocol.isShutdown(msg) then
 					self.outputQueue:push(msg)
 					break
 				end
-				local result = self:process(msg)
-				if result then
-					self.outputQueue:push(result)
+				if protocol.isCompletion(msg) then
+					self.outputQueue:push(msg)
+				else
+					local result = self:process(msg)
+					if result then
+						self.outputQueue:push(result)
+					end
 				end
 			end
 		end,
@@ -297,13 +319,20 @@ M.Transformer = function(config)
 		start = function(self)
 			while true do
 				local msg = self.inputQueue:pop()
-				if msg.type == "termichatter.completion.done" then
+				if not msg then
+					break
+				end
+				if protocol.isShutdown(msg) then
 					self.outputQueue:push(msg)
 					break
 				end
-				local result = self:process(msg)
-				if result then
-					self.outputQueue:push(result)
+				if protocol.isCompletion(msg) then
+					self.outputQueue:push(msg)
+				else
+					local result = self:process(msg)
+					if result then
+						self.outputQueue:push(result)
+					end
 				end
 			end
 		end,

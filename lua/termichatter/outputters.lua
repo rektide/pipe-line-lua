@@ -3,6 +3,7 @@ local M = {}
 
 local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
+local protocol = require("termichatter.protocol")
 
 --- Format a message for text output
 ---@param msg table the message
@@ -71,10 +72,15 @@ M.buffer = function(config)
 		start = function(self)
 			while true do
 				local msg = self.queue:pop()
-				if msg.type == "termichatter.completion.done" then
+				if not msg then
 					break
 				end
-				self:write(msg)
+				if protocol.isShutdown(msg) then
+					break
+				end
+				if not protocol.isCompletion(msg) then
+					self:write(msg)
+				end
 			end
 		end,
 
@@ -133,10 +139,16 @@ M.file = function(config)
 		start = function(self)
 			while true do
 				local msg = self.queue:pop()
-				if msg.type == "termichatter.completion.done" then
+				if not msg then
 					break
 				end
-				self:write(msg)
+				if protocol.isShutdown(msg) then
+					self:close()
+					break
+				end
+				if not protocol.isCompletion(msg) then
+					self:write(msg)
+				end
 			end
 		end,
 
@@ -173,14 +185,19 @@ M.fanout = function(config)
 		start = function(self)
 			while true do
 				local msg = self.queue:pop()
-				if msg.type == "termichatter.completion.done" then
-					-- Forward done to all child outputters
+				if not msg then
+					break
+				end
+				if protocol.isShutdown(msg) then
+					-- Forward shutdown to all child outputters
 					for _, out in ipairs(outputters) do
 						out.queue:push(msg)
 					end
 					break
 				end
-				self:write(msg)
+				if not protocol.isCompletion(msg) then
+					self:write(msg)
+				end
 			end
 		end,
 
@@ -222,10 +239,16 @@ M.jsonl = function(config)
 		start = function(self)
 			while true do
 				local msg = self.queue:pop()
-				if msg.type == "termichatter.completion.done" then
+				if not msg then
 					break
 				end
-				self:write(msg)
+				if protocol.isShutdown(msg) then
+					self:close()
+					break
+				end
+				if not protocol.isCompletion(msg) then
+					self:write(msg)
+				end
 			end
 		end,
 
