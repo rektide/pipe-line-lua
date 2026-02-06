@@ -39,13 +39,8 @@ M.baseLogger = function(self, config)
 			msg.module = msg.module or ctx.module
 		end
 
-		if ctx.timestamper then
-			msg = ctx.timestamper(msg)
-		end
-
-		if ctx.ingester then
-			msg = ctx.ingester(msg, ctx)
-		end
+		-- timestamper and ingester are handled by the pipeline stages,
+		-- not duplicated here
 
 		if self.log then
 			self.log(msg, ctx)
