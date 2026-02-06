@@ -2,6 +2,7 @@
 local M = {}
 
 local coop = require("coop")
+local uv = require("coop.uv")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local protocol = require("termichatter.protocol")
 
@@ -92,7 +93,7 @@ M.buffer = function(config)
 	}
 end
 
---- File outputter - appends messages to a file
+--- File outputter - appends messages to a file using async coop.uv
 ---@param config table { filename: string, dir?: string, format?: function }
 ---@return table outputter
 M.file = function(config)
@@ -117,24 +118,52 @@ M.file = function(config)
 
 	local filepath = dir .. "/" .. filename
 	local fd = nil
+	local writeOffset = 0
 
 	return {
 		queue = config.queue or MpscQueue.new(),
 
-		--- Write a single message to the file
+		--- Open the file for appending (async)
+		---@async
+		open = function(self)
+			if fd then
+				return true
+			end
+			-- Open with append flags: O_WRONLY | O_CREAT | O_APPEND = "a"
+			-- Mode 438 = 0666 octal (rw-rw-rw-)
+			local err, handle = uv.fs_open(filepath, "a", 438)
+			if err then
+				return false, err
+			end
+			fd = handle
+			-- Get current file size for write offset
+			local stat_err, stat = uv.fs_fstat(fd)
+			if not stat_err and stat then
+				writeOffset = stat.size
+			end
+			return true
+		end,
+
+		--- Write a single message to the file (async)
+		---@async
 		---@param msg table the message
 		write = function(self, msg)
 			if not fd then
-				fd = io.open(filepath, "a")
+				local ok, err = self:open()
+				if not ok then
+					return false, err
+				end
 			end
-			if fd then
-				local line = format(msg)
-				fd:write(line .. "\n")
-				fd:flush()
+			local line = format(msg) .. "\n"
+			local err, bytes = uv.fs_write(fd, line, writeOffset)
+			if err then
+				return false, err
 			end
+			writeOffset = writeOffset + (bytes or #line)
+			return true
 		end,
 
-		--- Start consuming from queue
+		--- Start consuming from queue (async)
 		---@async
 		start = function(self)
 			while true do
@@ -152,11 +181,13 @@ M.file = function(config)
 			end
 		end,
 
-		--- Close the file handle
+		--- Close the file handle (async)
+		---@async
 		close = function(self)
 			if fd then
-				fd:close()
+				uv.fs_close(fd)
 				fd = nil
+				writeOffset = 0
 			end
 		end,
 	}

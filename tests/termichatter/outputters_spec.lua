@@ -146,8 +146,11 @@ describe("termichatter.outputters", function()
 		it("writes to file", function()
 			local out = outputters.file({ filename = testFile })
 
-			out:write({ message = "file test" })
-			out:close()
+			-- write and close are now async, run in coop task
+			coop.spawn(function()
+				out:write({ message = "file test" })
+				out:close()
+			end):await(100, 10)
 
 			local f = io.open(testFile, "r")
 			assert.is_not_nil(f)
@@ -163,8 +166,12 @@ describe("termichatter.outputters", function()
 			local subFile = subdir .. "/nested.log"
 
 			local out = outputters.file({ filename = subFile })
-			out:write({ message = "nested" })
-			out:close()
+
+			-- write and close are now async, run in coop task
+			coop.spawn(function()
+				out:write({ message = "nested" })
+				out:close()
+			end):await(100, 10)
 
 			local f = io.open(subFile, "r")
 			assert.is_not_nil(f)
