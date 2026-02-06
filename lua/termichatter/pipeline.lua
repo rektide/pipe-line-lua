@@ -101,7 +101,11 @@ M.makePipeline = function(self, config)
 	local module = setmetatable({}, { __index = self })
 
 	module.pipeline = vim.deepcopy(self.pipeline or M.pipeline)
+	-- Initialize queues as parallel array to pipeline (nil = sync)
 	module.queues = {}
+	for i = 1, #module.pipeline do
+		module.queues[i] = (self.queues and self.queues[i]) or nil
+	end
 	module.outputQueue = MpscQueue.new()
 
 	for k, v in pairs(config) do
