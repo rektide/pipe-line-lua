@@ -104,9 +104,9 @@ describe("termichatter.pipeline async", function()
 				customSetting = "inherited",
 			})
 
-			local child = termichatter.makePipeline({
+			local child = parent:makePipeline({
 				source = "parent:app:child",
-			}, parent)
+			})
 
 			assert.are.equal("parent:app:child", child.source)
 			assert.are.equal("inherited", child.customSetting)
@@ -117,16 +117,16 @@ describe("termichatter.pipeline async", function()
 				filter = "parent.*",
 			})
 
-			local child = termichatter.makePipeline({
+			local child = parent:makePipeline({
 				filter = "child.*",
-			}, parent)
+			})
 
 			assert.are.equal("child.*", child.filter)
 		end)
 
 		it("child has independent pipeline", function()
 			local parent = termichatter.makePipeline()
-			local child = termichatter.makePipeline({}, parent)
+			local child = parent:makePipeline({})
 
 			child:addProcessor("childOnly", function(msg)
 				return msg
@@ -147,9 +147,9 @@ describe("termichatter.pipeline async", function()
 			end)
 
 			-- Create child logger
-			local logger = termichatter.baseLogger({
+			local logger = module:baseLogger({
 				module = "submodule",
-			}, module)
+			})
 
 			logger("test message")
 

@@ -38,7 +38,7 @@ describe("termichatter integration", function()
 			end)
 
 			-- Create logger
-			local log = termichatter.baseLogger({ module = "integration" }, module)
+			local log = module:baseLogger({ module = "integration" })
 
 			-- Log some messages
 			log.info("Starting up")
@@ -93,7 +93,7 @@ describe("termichatter integration", function()
 			module.outputQueue = inputQ
 
 			-- Create logger
-			local log = termichatter.baseLogger({}, module)
+			local log = module:baseLogger({})
 
 			-- Log at different levels
 			log.error("Error message")
@@ -257,9 +257,9 @@ describe("termichatter integration", function()
 			end)
 
 			-- Create multiple loggers
-			local logA = termichatter.baseLogger({ module = "A" }, module)
-			local logB = termichatter.baseLogger({ module = "B" }, module)
-			local logC = termichatter.baseLogger({ module = "C" }, module)
+			local logA = module:baseLogger({ module = "A" })
+			local logB = module:baseLogger({ module = "B" })
+			local logC = module:baseLogger({ module = "C" })
 
 			-- Log from each
 			for i = 1, 3 do

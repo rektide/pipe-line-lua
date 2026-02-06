@@ -53,8 +53,8 @@ local app = termichatter.makePipeline({
     source = "myapp:main",
 })
 
--- Create a logger
-local log = termichatter.baseLogger({ module = "startup" }, app)
+-- Create a logger (using colon syntax for inheritance)
+local log = app:baseLogger({ module = "startup" })
 
 -- Log messages at different priority levels
 log.info("Application starting")
@@ -133,10 +133,10 @@ local app = termichatter.makePipeline({
 })
 
 -- Create child module (inherits from app)
-local auth = termichatter.makePipeline({
+local auth = app:makePipeline({
     source = "myapp:auth",
     component = "authentication",
-}, app)
+})
 
 -- Child inherits parent's fields
 print(auth.environment)  -- "production"
@@ -233,7 +233,7 @@ app.format = function(msg, self) ... end
 local tasks = termichatter.startConsumers(app)
 
 -- Log messages - sync stages run immediately, async stages hand off
-local log = termichatter.baseLogger({}, app)
+local log = app:baseLogger({})
 log.info("Message flows through interleaved sync/async stages")
 
 -- When done, signal completion
@@ -271,7 +271,7 @@ All pipeline stages run synchronously. Messages land in `outputQueue` immediatel
 
 ```lua
 local app = termichatter.makePipeline({ source = "myapp" })
-local log = termichatter.baseLogger({}, app)
+local log = app:baseLogger({})
 
 log.info("This runs synchronously through all stages")
 -- Message is now in app.outputQueue
@@ -296,7 +296,7 @@ coop.spawn(function()
 end)
 
 -- Logging is still fast (sync)
-local log = termichatter.baseLogger({}, app)
+local log = app:baseLogger({})
 log.info("Fast sync logging")
 log.debug("Consumer processes async")
 ```
@@ -334,7 +334,7 @@ end
 local tasks = termichatter.startConsumers(app)
 
 -- Log messages
-local log = termichatter.baseLogger({}, app)
+local log = app:baseLogger({})
 log.info("validate runs sync, slowEnrich async, format continues sync")
 
 -- Signal completion when done
@@ -427,11 +427,11 @@ Loggers are the primary API for sending messages. They're callable tables with p
 ### Creating Loggers
 
 ```lua
-local log = termichatter.baseLogger({
+local log = app:baseLogger({
     source = "myapp:auth",
     module = "jwt",
     userId = 123,  -- custom field included in all messages
-}, parentModule)
+})
 ```
 
 ### Logging Messages
@@ -467,7 +467,7 @@ log({ message = "Raw event", type = "myapp.custom" })
 Access the logger's context:
 
 ```lua
-local log = termichatter.baseLogger({ module = "auth" }, app)
+local log = app:baseLogger({ module = "auth" })
 print(log.ctx.module)   -- "auth"
 print(log.ctx.source)   -- inherited from app
 ```
@@ -730,8 +730,8 @@ log.info({
 
 | Function | Description |
 |----------|-------------|
-| `makePipeline(config, parent)` | Create new module |
-| `baseLogger(config, parent)` | Create logger |
+| `module:makePipeline(config)` | Create child module inheriting from module |
+| `module:baseLogger(config)` | Create logger inheriting from module |
 | `log(msg, self)` | Send message through pipeline |
 | `continue(msg, self)` | Continue message from current pipeStep |
 | `startConsumers(self)` | Spawn consumers for all queues in pipeline |

@@ -92,36 +92,21 @@ M.addProcessor = function(self, name, handler, position, withQueue)
 end
 
 --- Create a new module/universe with its own pipeline
---- Copies all fields from parent, creates new pipeline/queues
+--- Inherits from self via __index, creates new pipeline/queues
 ---@param config? table configuration overrides
----@param parent? table parent module to inherit from (default: M)
 ---@return table module the new module
-M.makePipeline = function(config, parent)
-	parent = parent or M
+M.makePipeline = function(self, config)
 	config = config or {}
 
-	local module = {}
+	local module = setmetatable({}, { __index = self })
 
-	-- Copy all fields from parent
-	for k, v in pairs(parent) do
-		if type(v) == "table" and k ~= "queues" and k ~= "pipeline" and k ~= "priorities" then
-			module[k] = vim.deepcopy(v)
-		else
-			module[k] = v
-		end
-	end
-
-	-- Create new pipeline and queues arrays
-	module.pipeline = vim.deepcopy(parent.pipeline or M.pipeline)
+	module.pipeline = vim.deepcopy(self.pipeline or M.pipeline)
 	module.queues = {}
+	module.outputQueue = MpscQueue.new()
 
-	-- Apply config overrides
 	for k, v in pairs(config) do
 		module[k] = v
 	end
-
-	-- Create output queue
-	module.outputQueue = MpscQueue.new()
 
 	return module
 end

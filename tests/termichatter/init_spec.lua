@@ -200,7 +200,8 @@ describe("termichatter", function()
 
 	describe("baseLogger", function()
 		it("creates callable logger", function()
-			local logger = termichatter.baseLogger({ source = "test" })
+			local module = termichatter.makePipeline()
+			local logger = module:baseLogger({ source = "test" })
 			assert.is_table(logger)
 			-- Verify it's callable via metatable
 			local mt = getmetatable(logger)
@@ -209,7 +210,8 @@ describe("termichatter", function()
 		end)
 
 		it("has priority methods", function()
-			local logger = termichatter.baseLogger()
+			local module = termichatter.makePipeline()
+			local logger = module:baseLogger()
 			assert.is_function(logger.error)
 			assert.is_function(logger.warn)
 			assert.is_function(logger.info)
@@ -226,7 +228,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			local logger = termichatter.baseLogger({ source = "test" }, module)
+			local logger = module:baseLogger({ source = "test" })
 			logger("hello world")
 
 			assert.is_not_nil(captured)
@@ -243,7 +245,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			local logger = termichatter.baseLogger({}, module)
+			local logger = module:baseLogger({})
 			logger({ message = "test", data = { key = "value" } })
 
 			assert.is_not_nil(captured)
@@ -260,7 +262,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			local logger = termichatter.baseLogger({}, module)
+			local logger = module:baseLogger({})
 			logger.error("error message")
 
 			assert.are.equal("error", captured.priority)
@@ -276,7 +278,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			local logger = termichatter.baseLogger({ module = "child" }, parent)
+			local logger = parent:baseLogger({ module = "child" })
 			logger("test")
 
 			assert.are.equal("parent:source", captured.source)

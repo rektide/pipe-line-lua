@@ -2,7 +2,6 @@
 --- Main module that aggregates all sub-modules
 local M = {}
 
-M.consumers = require("termichatter.consumers")
 M.protocol = require("termichatter.protocol")
 M.processors = require("termichatter.processors")
 M.logger = require("termichatter.logger")
@@ -20,8 +19,13 @@ M.priorities = M.logger.priorities
 M.baseLogger = M.logger.baseLogger
 M.log = pipelineMod.log
 M.addProcessor = pipelineMod.addProcessor
-M.makePipeline = function(config, parent)
-	return pipelineMod.makePipeline(config, parent or M)
+M.makePipeline = function(self, config)
+	-- Support both termichatter.makePipeline(config) and termichatter:makePipeline(config)
+	if self == M or type(self) ~= "table" or (not self.pipeline and not getmetatable(self)) then
+		config = self
+		self = M
+	end
+	return pipelineMod.makePipeline(self, config)
 end
 
 -- Set default pipeline and queues on M for convenience
