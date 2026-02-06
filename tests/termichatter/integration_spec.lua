@@ -132,21 +132,22 @@ describe("termichatter integration", function()
 				environment = "production",
 			})
 
-			root:addProcessor("capture", function(msg)
+			-- Create child module (use colon syntax for inheritance)
+			local authModule = root:makePipeline({
+				source = "myapp:auth",
+				component = "authentication",
+			})
+
+			-- Add processor to authModule (after creation, on child's own pipeline)
+			authModule:addProcessor("capture", function(msg)
 				table.insert(captured, msg)
 				return msg
 			end)
 
-			-- Create child module
-			local authModule = termichatter.makePipeline({
-				source = "myapp:auth",
-				component = "authentication",
-			}, root)
-
-			-- Create grandchild logger
-			local authLog = termichatter.baseLogger({
+			-- Create grandchild logger (use colon syntax for inheritance)
+			local authLog = authModule:baseLogger({
 				module = "jwt",
-			}, authModule)
+			})
 
 			-- Log a message
 			authLog.info("Token validated")
@@ -236,7 +237,7 @@ describe("termichatter integration", function()
 			assert.are.equal("info", results[2].priority)
 			assert.is_not_nil(results[2].specversion)
 
-			assert.are.equal("termichatter.completion.done", results[3].type)
+			assert.are.equal("termichatter.shutdown", results[3].type)
 		end)
 	end)
 

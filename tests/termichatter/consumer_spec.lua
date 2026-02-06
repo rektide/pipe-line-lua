@@ -271,8 +271,8 @@ describe("termichatter.consumer", function()
 			assert.is_true(results[1].passedFilter)
 			assert.are.equal("also kept", results[2].message)
 			assert.is_true(results[2].passedFilter)
-			-- Third should be done
-			assert.are.equal("termichatter.completion.done", results[3].type)
+			-- Third should be shutdown
+			assert.are.equal("termichatter.shutdown", results[3].type)
 		end)
 	end)
 end)

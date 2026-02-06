@@ -229,9 +229,9 @@ describe("termichatter.outputters", function()
 			assert.are.equal(1, #received)
 		end)
 
-		it("forwards done to children", function()
-			local doneReceived1 = false
-			local doneReceived2 = false
+		it("forwards shutdown to children", function()
+			local shutdownReceived1 = false
+			local shutdownReceived2 = false
 
 			local mock1 = {
 				queue = MpscQueue.new(),
@@ -248,17 +248,17 @@ describe("termichatter.outputters", function()
 				queue = inputQ,
 			})
 
-			-- Check child queues for done message
+			-- Check child queues for shutdown message
 			local checker1 = coop.spawn(function()
 				local msg = mock1.queue:pop()
-				if msg.type == "termichatter.completion.done" then
-					doneReceived1 = true
+				if msg.type == "termichatter.shutdown" then
+					shutdownReceived1 = true
 				end
 			end)
 			local checker2 = coop.spawn(function()
 				local msg = mock2.queue:pop()
-				if msg.type == "termichatter.completion.done" then
-					doneReceived2 = true
+				if msg.type == "termichatter.shutdown" then
+					shutdownReceived2 = true
 				end
 			end)
 
@@ -266,14 +266,14 @@ describe("termichatter.outputters", function()
 				fan:start()
 			end)
 
-			inputQ:push({ type = "termichatter.completion.done" })
+			inputQ:push({ type = "termichatter.shutdown" })
 
 			consumer:await(100, 10)
 			checker1:await(100, 10)
 			checker2:await(100, 10)
 
-			assert.is_true(doneReceived1)
-			assert.is_true(doneReceived2)
+			assert.is_true(shutdownReceived1)
+			assert.is_true(shutdownReceived2)
 		end)
 	end)
 
