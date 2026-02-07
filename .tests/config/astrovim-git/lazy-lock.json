@@ -2,5 +2,5 @@
   "busted": { "branch": "master", "commit": "633862f58363cf395b2ee5f7121b6f3f66ad4d8e" },
   "hererocks": { "branch": "master", "commit": "3856f1b4fb69a9f683f1eb146a4cd49a67478419" },
   "lazy.nvim": { "branch": "main", "commit": "306a05526ada86a7b30af95c5cc81ffba93fef97" },
-  "luacov": { "branch": "master", "commit": "d115a90e6004e520f52bac355ea671204ae823e8" }
+  "luacov": { "branch": "master", "commit": "b1f9eae400da976b93edb7f94cf5d05f538a0655" }
 }
