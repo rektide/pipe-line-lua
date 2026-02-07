@@ -82,20 +82,28 @@ Tests are organized by module in the `tests/termichatter/` directory.
 
 termichatter uses a pipeline architecture where messages flow through a series of handlers:
 
-```
-┌─────────┐    ┌────────────────────────────────────┐    ┌───────────┐
-│ Logger  │───▶│  Pipeline (sync or async stages)   │───▶│ OutputQueue│
-└─────────┘    └────────────────────────────────────┘    └───────────┘
-                  │                                            │
-                  ▼                                            ▼
-            timestamper                                  ┌───────────┐
-            ingester                                     │ Consumer  │
-            cloudevents                                  └───────────┘
-            module_filter                                      │
-                                                              ▼
-                                                        ┌───────────┐
-                                                        │ Outputter │
-                                                        └───────────┘
+```mermaid
+graph TD
+    Logger[Logger<br/>creates messages] --> Pipeline
+
+    subgraph Pipeline["Pipeline (sync/async stages)"]
+        direction TB
+        Timestamp[Step 1: timestamper<br/>add hrtime]
+        Ingest[Step 2: ingester<br/>custom decoration]
+        CloudEvents[Step 3: cloudevents<br/>add id, source, type]
+        ModuleFilter[Step 4: module_filter<br/>pattern matching]
+    end
+
+    Pipeline --> OutputQueue[OutputQueue<br/>final destination]
+
+    OutputQueue --> Consumer[Consumer<br/>async queue processor]
+    Consumer --> Outputter[Outputter<br/>buffer, file, jsonl, fanout]
+
+    style Logger fill:#e1f5fe
+    style Pipeline fill:#f3e5f5
+    style OutputQueue fill:#fff9c4
+    style Consumer fill:#e8f5e9
+    style Outputter fill:#fce4ec
 ```
 
 ### Key Concepts
