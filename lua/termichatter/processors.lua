@@ -4,6 +4,7 @@ local M = {}
 
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local protocol = require("termichatter.protocol")
+local util = require("termichatter.util")
 
 --- Base processor loop - shared by all processor classes
 ---@param self table processor with inputQueue, outputQueue, process method
@@ -29,16 +30,56 @@ local function runProcessorLoop(self)
 end
 
 --------------------------------------------------
--- Built-in pipeline handlers (re-exported from pipeline)
+-- Built-in pipeline handlers
 --------------------------------------------------
 
--- These are also on pipeline module, but exported here for convenience
-local pipeline = require("termichatter.pipeline")
-M.timestamper = pipeline.timestamper
-M.ingester = pipeline.ingester
-M.cloudevents = pipeline.cloudevents
-M.module_filter = pipeline.module_filter
-M.uuid = pipeline.uuid
+--- Add high-resolution timestamp
+---@param msg table
+---@return table
+M.timestamper = function(msg)
+	msg.time = msg.time or vim.uv.hrtime()
+	return msg
+end
+
+--- No-op ingester (override to customize)
+---@param msg table
+---@return table
+M.ingester = function(msg)
+	return msg
+end
+
+--- Add CloudEvents fields (id, source, specversion)
+---@param msg table
+---@param self table
+---@return table
+M.cloudevents = function(msg, self)
+	msg.id = msg.id or util.uuid()
+	msg.source = msg.source or self.source
+	msg.specversion = msg.specversion or "1.0"
+	return msg
+end
+
+--- Filter by source/module pattern
+---@param msg table
+---@param self table
+---@return table|nil
+M.module_filter = function(msg, self)
+	local filter = self.filter
+	if not filter then
+		return msg
+	end
+	local source = msg.source or msg.module or ""
+	if type(filter) == "string" then
+		return string.match(source, filter) and msg or nil
+	elseif type(filter) == "function" then
+		return filter(msg, self) and msg or nil
+	end
+	return msg
+end
+
+--- Generate UUID v4
+---@return string
+M.uuid = util.uuid
 
 --------------------------------------------------
 -- ModuleFilter - npm `debug` style pattern filter
@@ -105,7 +146,7 @@ M.CloudEventsEnricher = function(config)
 
 		process = function(_, msg)
 			msg.specversion = msg.specversion or "1.0"
-			msg.id = msg.id or pipeline.uuid()
+			msg.id = msg.id or util.uuid()
 			msg.source = msg.source or defaultSource
 			msg.type = msg.type or defaultType
 			msg.time = msg.time or os.date("!%Y-%m-%dT%H:%M:%SZ")

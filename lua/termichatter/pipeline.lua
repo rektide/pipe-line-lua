@@ -1,12 +1,10 @@
 --- Pipeline: the core module for structured message flow
---- Self-contained with processors, log methods, and pipeline creation
+--- Self-contained with log methods and pipeline creation
 local M = {}
 
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local coop = require("coop")
-
--- Seed random once for UUID generation
-math.randomseed(vim.uv.hrtime())
+local registry = require("termichatter.registry")
 
 --------------------------------------------------
 -- Priority levels
@@ -20,64 +18,6 @@ M.priorities = {
 	debug = 5,
 	trace = 6,
 }
-
---------------------------------------------------
--- Built-in processors (pipeline stage handlers)
---------------------------------------------------
-
---- Add high-resolution timestamp
----@param msg table
----@return table
-M.timestamper = function(msg)
-	msg.time = msg.time or vim.uv.hrtime()
-	return msg
-end
-
---- No-op ingester (override to customize)
----@param msg table
----@return table
-M.ingester = function(msg)
-	return msg
-end
-
---- Generate UUID v4
----@return string
-M.uuid = function()
-	local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-	return string.gsub(template, "[xy]", function(c)
-		local v = (c == "x") and math.random(0, 0xf) or math.random(8, 0xb)
-		return string.format("%x", v)
-	end)
-end
-
---- Add CloudEvents fields (id, source, specversion)
----@param msg table
----@param self table
----@return table
-M.cloudevents = function(msg, self)
-	msg.id = msg.id or M.uuid()
-	msg.source = msg.source or self.source
-	msg.specversion = msg.specversion or "1.0"
-	return msg
-end
-
---- Filter by source/module pattern
----@param msg table
----@param self table
----@return table|nil
-M.module_filter = function(msg, self)
-	local filter = self.filter
-	if not filter then
-		return msg
-	end
-	local source = msg.source or msg.module or ""
-	if type(filter) == "string" then
-		return string.match(source, filter) and msg or nil
-	elseif type(filter) == "function" then
-		return filter(msg, self) and msg or nil
-	end
-	return msg
-end
 
 --------------------------------------------------
 -- Default pipeline configuration
