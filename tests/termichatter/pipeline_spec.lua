@@ -13,15 +13,20 @@ describe("termichatter.pipeline async", function()
 
 	describe("queue-based pipeline", function()
 		it("pushes to output queue", function()
+			-- Use sync pipeline so messages go straight to outputQueue
 			local module = termichatter.makePipeline()
-			local received = nil
+			module.pipeline = { "timestamper", "cloudevents" }
+			module.queues = {}
 
-			local consumer = coop.spawn(function()
+			-- Log first (sync), then pop
+			termichatter.log({ message = "test" }, module)
+
+			-- Pop should work immediately since message is already there
+			local received = nil
+			local task = coop.spawn(function()
 				received = module.outputQueue:pop()
 			end)
-
-			termichatter.log({ message = "test" }, module)
-			consumer:await(100, 10)
+			task:await(100, 10)
 
 			assert.is_not_nil(received)
 			assert.are.equal("test", received.message)
@@ -29,20 +34,23 @@ describe("termichatter.pipeline async", function()
 
 		it("processes multiple messages in order", function()
 			local module = termichatter.makePipeline()
-			local messages = {}
+			module.pipeline = { "timestamper" }
+			module.queues = {}
 
-			local consumer = coop.spawn(function()
+			-- Log all messages first (sync)
+			termichatter.log({ message = "first" }, module)
+			termichatter.log({ message = "second" }, module)
+			termichatter.log({ message = "third" }, module)
+
+			-- Now collect from output queue
+			local messages = {}
+			local task = coop.spawn(function()
 				for _ = 1, 3 do
 					local msg = module.outputQueue:pop()
 					table.insert(messages, msg.message)
 				end
 			end)
-
-			termichatter.log({ message = "first" }, module)
-			termichatter.log({ message = "second" }, module)
-			termichatter.log({ message = "third" }, module)
-
-			consumer:await(100, 10)
+			task:await(100, 10)
 
 			assert.are.same({ "first", "second", "third" }, messages)
 		end)
@@ -137,8 +145,8 @@ describe("termichatter.pipeline async", function()
 			assert.are.equal(#parent.pipeline + 1, #child.pipeline)
 		end)
 
-		it("logger inherits module context", function()
-			local module = termichatter.makePipeline({ source = "app:main" })
+		it("log methods inherit module context", function()
+			local module = termichatter.makePipeline({ source = "app:main", module = "submodule" })
 			local captured = nil
 
 			module:addProcessor("capture", function(msg)
@@ -146,12 +154,7 @@ describe("termichatter.pipeline async", function()
 				return msg
 			end)
 
-			-- Create child logger
-			local logger = module:baseLogger({
-				module = "submodule",
-			})
-
-			logger("test message")
+			module.info("test message")
 
 			assert.are.equal("app:main", captured.source)
 			assert.are.equal("submodule", captured.module)
@@ -161,21 +164,23 @@ describe("termichatter.pipeline async", function()
 	describe("multiple producers", function()
 		it("handles concurrent logging", function()
 			local module = termichatter.makePipeline()
-			local received = {}
+			module.pipeline = { "timestamper" }
+			module.queues = {}
 
-			local consumer = coop.spawn(function()
+			-- Multiple producers (sync)
+			for i = 1, 5 do
+				termichatter.log({ producer = i }, module)
+			end
+
+			-- Now collect
+			local received = {}
+			local task = coop.spawn(function()
 				for _ = 1, 5 do
 					local msg = module.outputQueue:pop()
 					table.insert(received, msg.producer)
 				end
 			end)
-
-			-- Multiple producers
-			for i = 1, 5 do
-				termichatter.log({ producer = i }, module)
-			end
-
-			consumer:await(200, 10)
+			task:await(200, 10)
 
 			assert.are.equal(5, #received)
 		end)

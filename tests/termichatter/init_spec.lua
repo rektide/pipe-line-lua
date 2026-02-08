@@ -99,14 +99,16 @@ describe("termichatter", function()
 
 	describe("log", function()
 		it("processes message through pipeline", function()
-			local module = termichatter.makePipeline({ source = "test:module" })
 			local processed = nil
 
-			-- Add a capture handler at end
-			module:addProcessor("capture", function(msg)
+			-- Create module with custom sync pipeline (no queues = all sync)
+			local module = termichatter.makePipeline({ source = "test:module" })
+			module.pipeline = { "timestamper", "cloudevents", "capture" }
+			module.queues = {}
+			module.capture = function(msg)
 				processed = msg
 				return msg
-			end)
+			end
 
 			termichatter.log({ message = "hello" }, module)
 
@@ -117,9 +119,10 @@ describe("termichatter", function()
 		end)
 
 		it("respects pipeStep", function()
-			local module = termichatter.makePipeline()
 			local steps = {}
 
+			-- Create module with custom sync pipeline
+			local module = termichatter.makePipeline()
 			module.step1 = function(msg)
 				table.insert(steps, 1)
 				return msg
@@ -129,6 +132,7 @@ describe("termichatter", function()
 				return msg
 			end
 			module.pipeline = { "step1", "step2" }
+			module.queues = {}
 
 			-- Start from step 2
 			termichatter.log({ pipeStep = 2 }, module)
@@ -147,6 +151,7 @@ describe("termichatter", function()
 				return msg
 			end
 			module.pipeline = { "blocker", "after" }
+			module.queues = {}
 
 			termichatter.log({}, module)
 			assert.is_false(reached)
@@ -198,29 +203,18 @@ describe("termichatter", function()
 		end)
 	end)
 
-	describe("baseLogger", function()
-		it("creates callable logger", function()
+	describe("log methods", function()
+		it("module has priority methods", function()
 			local module = termichatter.makePipeline()
-			local logger = module:baseLogger({ source = "test" })
-			assert.is_table(logger)
-			-- Verify it's callable via metatable
-			local mt = getmetatable(logger)
-			assert.is_not_nil(mt)
-			assert.is_function(mt.__call)
-		end)
-
-		it("has priority methods", function()
-			local module = termichatter.makePipeline()
-			local logger = module:baseLogger()
-			assert.is_function(logger.error)
-			assert.is_function(logger.warn)
-			assert.is_function(logger.info)
-			assert.is_function(logger.debug)
-			assert.is_function(logger.trace)
+			assert.is_function(module.error)
+			assert.is_function(module.warn)
+			assert.is_function(module.info)
+			assert.is_function(module.debug)
+			assert.is_function(module.trace)
 		end)
 
 		it("logs string messages", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter.makePipeline({ source = "test" })
 			local captured = nil
 
 			module:addProcessor("capture", function(msg)
@@ -228,8 +222,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			local logger = module:baseLogger({ source = "test" })
-			logger("hello world")
+			module.info("hello world")
 
 			assert.is_not_nil(captured)
 			assert.are.equal("hello world", captured.message)
@@ -245,8 +238,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			local logger = module:baseLogger({})
-			logger({ message = "test", data = { key = "value" } })
+			module.info({ message = "test", data = { key = "value" } })
 
 			assert.is_not_nil(captured)
 			assert.are.equal("test", captured.message)
@@ -262,24 +254,22 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			local logger = module:baseLogger({})
-			logger.error("error message")
+			module.error("error message")
 
 			assert.are.equal("error", captured.priority)
 			assert.are.equal(1, captured.priorityLevel)
 		end)
 
-		it("inherits from parent module", function()
-			local parent = termichatter.makePipeline({ source = "parent:source" })
+		it("inherits source from module", function()
+			local module = termichatter.makePipeline({ source = "parent:source", module = "child" })
 			local captured = nil
 
-			parent:addProcessor("capture", function(msg)
+			module:addProcessor("capture", function(msg)
 				captured = msg
 				return msg
 			end)
 
-			local logger = parent:baseLogger({ module = "child" })
-			logger("test")
+			module.info("test")
 
 			assert.are.equal("parent:source", captured.source)
 			assert.are.equal("child", captured.module)

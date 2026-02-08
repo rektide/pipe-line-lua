@@ -37,13 +37,10 @@ describe("termichatter integration", function()
 				bufOut:start()
 			end)
 
-			-- Create logger
-			local log = module:baseLogger({ module = "integration" })
-
-			-- Log some messages
-			log.info("Starting up")
-			log.debug("Debug info here")
-			log.error("Something went wrong")
+			-- Log some messages using module's log methods
+			module.info("Starting up")
+			module.debug("Debug info here")
+			module.error("Something went wrong")
 
 			-- Signal done
 			module.outputQueue:push(termichatter.completion.done)
@@ -92,14 +89,11 @@ describe("termichatter integration", function()
 			local module = termichatter.makePipeline()
 			module.outputQueue = inputQ
 
-			-- Create logger
-			local log = module:baseLogger({})
-
-			-- Log at different levels
-			log.error("Error message")
-			log.warn("Warning message")
-			log.info("Info message")
-			log.debug("Debug message")
+			-- Log at different levels using module's methods
+			module.error("Error message")
+			module.warn("Warning message")
+			module.info("Info message")
+			module.debug("Debug message")
 
 			-- Signal done
 			inputQ:push(termichatter.completion.done)
@@ -144,13 +138,9 @@ describe("termichatter integration", function()
 				return msg
 			end)
 
-			-- Create grandchild logger (use colon syntax for inheritance)
-			local authLog = authModule:baseLogger({
-				module = "jwt",
-			})
-
-			-- Log a message
-			authLog.info("Token validated")
+			-- Set module on authModule and log
+			authModule.module = "jwt"
+			authModule.info("Token validated")
 
 			-- Check captured message
 			assert.are.equal(1, #captured)
@@ -257,16 +247,20 @@ describe("termichatter integration", function()
 				end
 			end)
 
-			-- Create multiple loggers
-			local logA = module:baseLogger({ module = "A" })
-			local logB = module:baseLogger({ module = "B" })
-			local logC = module:baseLogger({ module = "C" })
+			-- Create child modules for each producer
+			local modA = module:makePipeline({ module = "A" })
+			local modB = module:makePipeline({ module = "B" })
+			local modC = module:makePipeline({ module = "C" })
+			-- Point their output to parent's outputQueue
+			modA.outputQueue = module.outputQueue
+			modB.outputQueue = module.outputQueue
+			modC.outputQueue = module.outputQueue
 
 			-- Log from each
 			for i = 1, 3 do
-				logA("Message from A: " .. i)
-				logB("Message from B: " .. i)
-				logC("Message from C: " .. i)
+				modA.info("Message from A: " .. i)
+				modB.info("Message from B: " .. i)
+				modC.info("Message from C: " .. i)
 			end
 
 			-- Signal done
