@@ -222,7 +222,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			module.info("hello world")
+			module:info("hello world")
 
 			assert.is_not_nil(captured)
 			assert.are.equal("hello world", captured.message)
@@ -238,7 +238,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			module.info({ message = "test", data = { key = "value" } })
+			module:info({ message = "test", data = { key = "value" } })
 
 			assert.is_not_nil(captured)
 			assert.are.equal("test", captured.message)
@@ -254,7 +254,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			module.error("error message")
+			module:error("error message")
 
 			assert.are.equal("error", captured.priority)
 			assert.are.equal(1, captured.priorityLevel)
@@ -269,7 +269,7 @@ describe("termichatter", function()
 				return msg
 			end)
 
-			module.info("test")
+			module:info("test")
 
 			assert.are.equal("parent:source", captured.source)
 			assert.are.equal("child", captured.module)

@@ -179,35 +179,46 @@ M.stopConsumers = function(self)
 end
 
 --------------------------------------------------
--- Pipeline creation
+-- Priority log methods (use colon syntax: pipeline:info("msg"))
 --------------------------------------------------
 
---- Create a log method for a priority level
-local function makeLogMethod(priority, level, self)
-	return function(msg)
-		if type(msg) == "string" then
-			msg = { message = msg }
-		else
-			msg = vim.deepcopy(msg)
-		end
-		msg.priority = priority
-		msg.priorityLevel = level
-		msg.source = msg.source or self.source
-		msg.module = msg.module or self.module
-		M.log(msg, self)
-		return msg
+local function logWithPriority(self, msg, priority, level)
+	if type(msg) == "string" then
+		msg = { message = msg }
+	else
+		msg = vim.deepcopy(msg)
 	end
+	msg.priority = priority
+	msg.priorityLevel = level
+	msg.source = msg.source or self.source
+	msg.module = msg.module or self.module
+	M.log(msg, self)
+	return msg
 end
 
---- Attach priority log methods (debug, info, warn, error, trace)
----@param module table
-M.attachLogMethods = function(module)
-	for name, level in pairs(M.priorities) do
-		if name ~= "log" then
-			module[name] = makeLogMethod(name, level, module)
-		end
-	end
+function M:error(msg)
+	return logWithPriority(self, msg, "error", 1)
 end
+
+function M:warn(msg)
+	return logWithPriority(self, msg, "warn", 2)
+end
+
+function M:info(msg)
+	return logWithPriority(self, msg, "info", 3)
+end
+
+function M:debug(msg)
+	return logWithPriority(self, msg, "debug", 5)
+end
+
+function M:trace(msg)
+	return logWithPriority(self, msg, "trace", 6)
+end
+
+--------------------------------------------------
+-- Pipeline creation
+--------------------------------------------------
 
 --- Create a new pipeline with its own queues
 --- Inherits handlers from parent, creates independent queues
@@ -236,7 +247,6 @@ M.makePipeline = function(self, config)
 		pipeline[k] = v
 	end
 
-	M.attachLogMethods(pipeline)
 	M.startConsumers(pipeline)
 
 	return pipeline

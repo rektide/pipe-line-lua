@@ -154,7 +154,7 @@ describe("termichatter.pipeline async", function()
 				return msg
 			end)
 
-			module.info("test message")
+			module:info("test message")
 
 			assert.are.equal("app:main", captured.source)
 			assert.are.equal("submodule", captured.module)

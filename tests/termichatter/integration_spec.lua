@@ -38,9 +38,9 @@ describe("termichatter integration", function()
 			end)
 
 			-- Log some messages using module's log methods
-			module.info("Starting up")
-			module.debug("Debug info here")
-			module.error("Something went wrong")
+			module:info("Starting up")
+			module:debug("Debug info here")
+			module:error("Something went wrong")
 
 			-- Signal done
 			module.outputQueue:push(termichatter.completion.done)
@@ -90,10 +90,10 @@ describe("termichatter integration", function()
 			module.outputQueue = inputQ
 
 			-- Log at different levels using module's methods
-			module.error("Error message")
-			module.warn("Warning message")
-			module.info("Info message")
-			module.debug("Debug message")
+			module:error("Error message")
+			module:warn("Warning message")
+			module:info("Info message")
+			module:debug("Debug message")
 
 			-- Signal done
 			inputQ:push(termichatter.completion.done)
@@ -140,7 +140,7 @@ describe("termichatter integration", function()
 
 			-- Set module on authModule and log
 			authModule.module = "jwt"
-			authModule.info("Token validated")
+			authModule:info("Token validated")
 
 			-- Check captured message
 			assert.are.equal(1, #captured)
@@ -258,9 +258,9 @@ describe("termichatter integration", function()
 
 			-- Log from each
 			for i = 1, 3 do
-				modA.info("Message from A: " .. i)
-				modB.info("Message from B: " .. i)
-				modC.info("Message from C: " .. i)
+				modA:info("Message from A: " .. i)
+				modB:info("Message from B: " .. i)
+				modC:info("Message from C: " .. i)
 			end
 
 			-- Signal done
