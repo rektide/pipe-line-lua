@@ -61,7 +61,7 @@ M.log = function(msg, self)
 
 		-- Resolve and run handler
 		if type(handler) == "string" then
-			handler = self.registry and self.registry.getProcessor(handler) or self[handler]
+			handler = self.registry and self.registry.processors[handler] or self[handler]
 		end
 		if handler and type(handler) == "function" then
 			msg = handler(msg, self)
