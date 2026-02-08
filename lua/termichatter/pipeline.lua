@@ -1,21 +1,17 @@
---- Core pipeline logic for message processing
+--- Pipeline: the core module for structured message flow
+--- Self-contained with processors, log methods, and pipeline creation
 local M = {}
 
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local coop = require("coop")
 
---- The default pipeline stages
-M.pipeline = {
-	"timestamper",
-	"ingester",
-	"cloudevents",
-	"module_filter",
-}
+-- Seed random once for UUID generation
+math.randomseed(vim.uv.hrtime())
 
---- Corresponding queues for pipeline stages (nil = synchronous)
-M.queues = {}
+--------------------------------------------------
+-- Priority levels
+--------------------------------------------------
 
---- Priority levels for logging
 M.priorities = {
 	error = 1,
 	warn = 2,
@@ -25,11 +21,79 @@ M.priorities = {
 	trace = 6,
 }
 
---- Log a message through the pipeline
---- Looks for pipeStep to start from, or sets to 1 and starts
---- Runs sync stages immediately, hands off to queues for async stages
----@param msg table the message to log
----@param self? table the module context (defaults to M)
+--------------------------------------------------
+-- Built-in processors (pipeline stage handlers)
+--------------------------------------------------
+
+--- Add high-resolution timestamp
+---@param msg table
+---@return table
+M.timestamper = function(msg)
+	msg.time = msg.time or vim.uv.hrtime()
+	return msg
+end
+
+--- No-op ingester (override to customize)
+---@param msg table
+---@return table
+M.ingester = function(msg)
+	return msg
+end
+
+--- Generate UUID v4
+---@return string
+M.uuid = function()
+	local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+	return string.gsub(template, "[xy]", function(c)
+		local v = (c == "x") and math.random(0, 0xf) or math.random(8, 0xb)
+		return string.format("%x", v)
+	end)
+end
+
+--- Add CloudEvents fields (id, source, specversion)
+---@param msg table
+---@param self table
+---@return table
+M.cloudevents = function(msg, self)
+	msg.id = msg.id or M.uuid()
+	msg.source = msg.source or self.source
+	msg.specversion = msg.specversion or "1.0"
+	return msg
+end
+
+--- Filter by source/module pattern
+---@param msg table
+---@param self table
+---@return table|nil
+M.module_filter = function(msg, self)
+	local filter = self.filter
+	if not filter then
+		return msg
+	end
+	local source = msg.source or msg.module or ""
+	if type(filter) == "string" then
+		return string.match(source, filter) and msg or nil
+	elseif type(filter) == "function" then
+		return filter(msg, self) and msg or nil
+	end
+	return msg
+end
+
+--------------------------------------------------
+-- Default pipeline configuration
+--------------------------------------------------
+
+M.pipeline = { "timestamper", "ingester", "cloudevents", "module_filter" }
+M.queues = {}
+
+--------------------------------------------------
+-- Core log function
+--------------------------------------------------
+
+--- Send a message through the pipeline
+--- Runs sync stages immediately, pushes to queues for async stages
+---@param msg table the message
+---@param self? table the pipeline context (defaults to M)
 M.log = function(msg, self)
 	self = self or M
 	msg.pipeStep = msg.pipeStep or 1
@@ -41,31 +105,28 @@ M.log = function(msg, self)
 		local handler = pipeline[step]
 		local queue = self.queues and self.queues[step]
 
-		-- Resolve queue if it's a string or function
+		-- Resolve queue reference
 		if type(queue) == "string" then
 			queue = self[queue]
 		elseif type(queue) == "function" then
 			queue = queue(msg)
 		end
 
-		-- If there's a queue at this step, push and return (async handoff)
-		-- The consumer for this queue will continue processing
+		-- Async handoff if queue exists
 		if queue then
 			msg.pipeStep = step
 			queue:push(msg)
 			return
 		end
 
-		-- Resolve handler if it's a string
+		-- Resolve and run handler
 		if type(handler) == "string" then
 			handler = self[handler]
 		end
-
-		-- Run handler if present
 		if handler and type(handler) == "function" then
 			msg = handler(msg, self)
 			if not msg then
-				return -- Handler filtered the message
+				return
 			end
 		end
 
@@ -73,129 +134,55 @@ M.log = function(msg, self)
 		msg.pipeStep = step
 	end
 
-	-- Message completed pipeline - push to output queue if present
-	local outputQueue = self.outputQueue
-	if outputQueue then
-		outputQueue:push(msg)
+	-- Push to output queue
+	if self.outputQueue then
+		self.outputQueue:push(msg)
 	end
 end
 
---- Add a processor to the pipeline at specified position
----@param self table the module
----@param name string the handler name
----@param handler function the handler function
----@param position? number position to insert (default: end)
----@param withQueue? boolean whether to create a queue at this position
+--------------------------------------------------
+-- Pipeline modification
+--------------------------------------------------
+
+--- Add a processor to the pipeline
+---@param self table
+---@param name string handler name
+---@param handler function
+---@param position? number (default: end)
+---@param withQueue? boolean create queue at this position
 ---@return table self for chaining
 M.addProcessor = function(self, name, handler, position, withQueue)
 	position = position or (#self.pipeline + 1)
 	self[name] = handler
 	table.insert(self.pipeline, position, name)
-
-	if withQueue then
-		local queue = MpscQueue.new()
-		table.insert(self.queues, position, queue)
-	else
-		table.insert(self.queues, position, nil)
-	end
-
+	table.insert(self.queues, position, withQueue and MpscQueue.new() or nil)
 	return self
 end
 
---- Create a consumer for a specific queue/step in the pipeline
---- The consumer pops messages and continues them through the pipeline
----@param queue table the mpsc queue to consume from
----@param step number the pipeline step this queue is at
----@param self table the pipeline module context
----@return function consumer async consumer function
-M.makeQueueConsumer = function(queue, step, self)
-	local protocol = require("termichatter.protocol")
-	return function()
-		while true do
-			local msg = queue:pop()
-			if not msg then
-				break
-			end
-			if protocol.isShutdown(msg) then
-				if self.outputQueue then
-					self.outputQueue:push(msg)
-				end
-				break
-			end
-			if protocol.isCompletion(msg) then
-				if self.outputQueue then
-					self.outputQueue:push(msg)
-				end
-			else
-				msg.pipeStep = step + 1
-				M.log(msg, self)
-			end
-		end
-	end
-end
+--------------------------------------------------
+-- Consumer support (delegates to consumer module)
+--------------------------------------------------
 
---- Start consumers for all async queues in the pipeline
----@param self table the pipeline module
----@return table[] tasks array of coop tasks
+--- Start consumers for async queues in the pipeline
+---@param self table
+---@return table[] tasks
 M.startConsumers = function(self)
-	self._consumerTasks = self._consumerTasks or {}
-	for i, queue in ipairs(self.queues) do
-		if queue then
-			local consumer = M.makeQueueConsumer(queue, i, self)
-			local task = coop.spawn(consumer)
-			table.insert(self._consumerTasks, task)
-		end
-	end
-	return self._consumerTasks
+	local consumer = require("termichatter.consumer")
+	return consumer.startPipelineConsumers(self)
 end
 
---- Stop all running consumer tasks
----@param self table the pipeline module
+--- Stop running consumers
+---@param self table
 M.stopConsumers = function(self)
-	if self._consumerTasks then
-		for _, task in ipairs(self._consumerTasks) do
-			task:cancel()
-		end
-		self._consumerTasks = {}
-	end
+	local consumer = require("termichatter.consumer")
+	consumer.stopPipelineConsumers(self)
 end
 
---- Create a new module/universe with its own pipeline
---- Inherits from self via __index, creates NEW queues (not shared)
---- Automatically starts consumers for async stages
----@param config? table configuration overrides
----@return table module the new module
-M.makePipeline = function(self, config)
-	config = config or {}
+--------------------------------------------------
+-- Pipeline creation
+--------------------------------------------------
 
-	local module = setmetatable({}, { __index = self })
-
-	module.pipeline = vim.deepcopy(self.pipeline or M.pipeline)
-	module.queues = {}
-	local parentQueues = self.queues or {}
-	for i = 1, #module.pipeline do
-		if parentQueues[i] then
-			module.queues[i] = MpscQueue.new()
-		else
-			module.queues[i] = nil
-		end
-	end
-	module.outputQueue = MpscQueue.new()
-
-	for k, v in pairs(config) do
-		module[k] = v
-	end
-
-	M.startConsumers(module)
-
-	return module
-end
-
---- Create a log method for a specific priority level
----@param priority string the priority name
----@param level number the priority level
----@param self table the pipeline module
----@return function logMethod
+--- Create a log method for a priority level
 local function makeLogMethod(priority, level, self)
 	return function(msg)
 		if type(msg) == "string" then
@@ -205,20 +192,15 @@ local function makeLogMethod(priority, level, self)
 		end
 		msg.priority = priority
 		msg.priorityLevel = level
-		if self.source then
-			msg.source = msg.source or self.source
-		end
-		if self.module then
-			msg.module = msg.module or self.module
-		end
+		msg.source = msg.source or self.source
+		msg.module = msg.module or self.module
 		M.log(msg, self)
 		return msg
 	end
 end
 
---- Attach log methods (debug, info, warn, error, trace) to a module
---- Note: does not attach 'log' to avoid shadowing the pipeline log function
----@param module table the module to attach methods to
+--- Attach priority log methods (debug, info, warn, error, trace)
+---@param module table
 M.attachLogMethods = function(module)
 	for name, level in pairs(M.priorities) do
 		if name ~= "log" then
@@ -226,5 +208,47 @@ M.attachLogMethods = function(module)
 		end
 	end
 end
+
+--- Create a new pipeline with its own queues
+--- Inherits handlers from parent, creates independent queues
+---@param self? table parent to inherit from
+---@param config? table configuration overrides
+---@return table pipeline
+M.makePipeline = function(self, config)
+	-- Handle both M.makePipeline(config) and M:makePipeline(config)
+	if self == M or type(self) ~= "table" or (not self.pipeline and not getmetatable(self)) then
+		config = self
+		self = M
+	end
+	config = config or {}
+
+	local pipeline = setmetatable({}, { __index = self })
+
+	pipeline.pipeline = vim.deepcopy(self.pipeline or M.pipeline)
+	pipeline.queues = {}
+	local parentQueues = self.queues or {}
+	for i = 1, #pipeline.pipeline do
+		pipeline.queues[i] = parentQueues[i] and MpscQueue.new() or nil
+	end
+	pipeline.outputQueue = MpscQueue.new()
+
+	for k, v in pairs(config) do
+		pipeline[k] = v
+	end
+
+	M.attachLogMethods(pipeline)
+	M.startConsumers(pipeline)
+
+	return pipeline
+end
+
+--------------------------------------------------
+-- Protocol (completion/shutdown signals)
+--------------------------------------------------
+
+M.protocol = require("termichatter.protocol")
+M.completion = M.protocol
+M.isCompletion = M.protocol.isCompletion
+M.isShutdown = M.protocol.isShutdown
 
 return M

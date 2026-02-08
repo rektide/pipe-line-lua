@@ -5,6 +5,68 @@ local M = {}
 local coop = require("coop")
 local protocol = require("termichatter.protocol")
 
+--------------------------------------------------
+-- Pipeline consumer support
+--------------------------------------------------
+
+--- Create a consumer function for a pipeline queue
+--- Pops messages and continues them through the pipeline
+---@param queue table the mpsc queue
+---@param step number the pipeline step this queue is at
+---@param pipeline table the pipeline context
+---@return function consumer
+M.makePipelineConsumer = function(queue, step, pipeline)
+	return function()
+		while true do
+			local msg = queue:pop()
+			if not msg then
+				break
+			end
+			if protocol.isShutdown(msg) then
+				if pipeline.outputQueue then
+					pipeline.outputQueue:push(msg)
+				end
+				break
+			end
+			if protocol.isCompletion(msg) then
+				if pipeline.outputQueue then
+					pipeline.outputQueue:push(msg)
+				end
+			else
+				msg.pipeStep = step + 1
+				local pipelineMod = require("termichatter.pipeline")
+				pipelineMod.log(msg, pipeline)
+			end
+		end
+	end
+end
+
+--- Start consumers for all async queues in a pipeline
+---@param pipeline table
+---@return table[] tasks
+M.startPipelineConsumers = function(pipeline)
+	pipeline._consumerTasks = pipeline._consumerTasks or {}
+	for i, queue in ipairs(pipeline.queues) do
+		if queue then
+			local consumer = M.makePipelineConsumer(queue, i, pipeline)
+			local task = coop.spawn(consumer)
+			table.insert(pipeline._consumerTasks, task)
+		end
+	end
+	return pipeline._consumerTasks
+end
+
+--- Stop all consumer tasks for a pipeline
+---@param pipeline table
+M.stopPipelineConsumers = function(pipeline)
+	if pipeline._consumerTasks then
+		for _, task in ipairs(pipeline._consumerTasks) do
+			task:cancel()
+		end
+		pipeline._consumerTasks = {}
+	end
+end
+
 --- Create an async consumer that processes messages from a queue
 --- Runs handlers in order and forwards to next queue or outputter
 ---@param config table { inputQueue: MpscQueue, handlers: function[], outputQueue?: MpscQueue }
