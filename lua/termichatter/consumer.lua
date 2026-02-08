@@ -4,6 +4,7 @@ local M = {}
 
 local coop = require("coop")
 local protocol = require("termichatter.protocol")
+local R = require("termichatter.registry")
 
 --------------------------------------------------
 -- Pipeline consumer support
@@ -258,5 +259,16 @@ M.withDriver = function(config)
 		end,
 	}
 end
+
+--------------------------------------------------
+-- Register built-in consumers with registry
+--------------------------------------------------
+
+R.consumers.makePipelineConsumer = M.makePipelineConsumer
+R.consumers.startPipelineConsumers = M.startPipelineConsumers
+R.consumers.stopPipelineConsumers = M.stopPipelineConsumers
+R.consumers.create = M.create
+R.consumers.createPipeline = M.createPipeline
+R.consumers.withDriver = M.withDriver
 
 return M

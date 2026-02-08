@@ -5,6 +5,7 @@ local M = {}
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local protocol = require("termichatter.protocol")
 local util = require("termichatter.util")
+local R = require("termichatter.registry")
 
 --- Base processor loop - shared by all processor classes
 ---@param self table processor with inputQueue, outputQueue, process method
@@ -234,5 +235,19 @@ M.Transformer = function(config)
 	}
 	return processor
 end
+
+--------------------------------------------------
+-- Register built-in processors with registry
+--------------------------------------------------
+
+R.processors.timestamper = M.timestamper
+R.processors.ingester = M.ingester
+R.processors.cloudevents = M.cloudevents
+R.processors.module_filter = M.module_filter
+R.processors.uuid = M.uuid
+R.processors.ModuleFilter = M.ModuleFilter
+R.processors.CloudEventsEnricher = M.CloudEventsEnricher
+R.processors.PriorityFilter = M.PriorityFilter
+R.processors.Transformer = M.Transformer
 
 return M

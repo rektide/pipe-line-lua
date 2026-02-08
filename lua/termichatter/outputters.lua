@@ -5,6 +5,7 @@ local coop = require("coop")
 local uv = require("coop.uv")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local protocol = require("termichatter.protocol")
+local R = require("termichatter.registry")
 
 --- Format a message for text output
 ---@param msg table the message
@@ -292,5 +293,14 @@ M.jsonl = function(config)
 		end,
 	}
 end
+
+--------------------------------------------------
+-- Register built-in outputters with registry
+--------------------------------------------------
+
+R.outputters.buffer = M.buffer
+R.outputters.file = M.file
+R.outputters.fanout = M.fanout
+R.outputters.jsonl = M.jsonl
 
 return M

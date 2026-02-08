@@ -3,7 +3,7 @@
 local M = {}
 
 local pipeline = require("termichatter.pipeline")
-local registry = require("termichatter.registry").init()
+local registry = require("termichatter.registry")
 
 -- Start with pipeline as base (log methods inherited via __index)
 setmetatable(M, { __index = pipeline })
