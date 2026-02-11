@@ -5,3 +5,7 @@
 *.luac
 luacov.stats.out
 luacov.report.out
+
+# Rust benchmark artifacts
+target/
+.criterion-history/

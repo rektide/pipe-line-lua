@@ -78,6 +78,39 @@ nvim -l tests/busted.lua tests/termichatter/unified_pipeline_spec.lua
 
 Tests are organized by module in the `tests/termichatter/` directory.
 
+## Benchmarking Lua Test Suites with cargo-criterion
+
+You can benchmark each Lua test suite (`*_spec.lua`) through Rust Criterion so you get per-suite regression tracking and HTML reports.
+
+Prerequisites:
+
+- `nvim` available on `PATH`
+- test dependency checkout present at `.test-agent/coop`
+- `cargo-criterion` installed (`cargo install cargo-criterion`)
+
+Run a benchmark pass with automatic history tracking:
+
+```bash
+cargo run --bin bench-history
+```
+
+What this does:
+
+- runs `cargo criterion --bench lua_suites`
+- tags the run with a unique `--history-id` (timestamp + git commit)
+- appends run metadata to `.criterion-history/runs.jsonl`
+
+Reports:
+
+- consolidated HTML report: `target/criterion/report/index.html`
+- benchmark data and history snapshots: `target/criterion/`
+
+If you want a one-off manual history label:
+
+```bash
+cargo criterion --bench lua_suites --history-id local-change-a
+```
+
 ## Architecture
 
 termichatter uses a pipeline architecture where messages flow through a series of handlers:
