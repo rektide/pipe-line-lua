@@ -5,9 +5,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+const IMPL_DIR: &str = "implementations";
 const SUITE_DIR: &str = "tests/termichatter";
 const BUSTED_ENTRYPOINT: &str = "tests/busted.lua";
 const MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
+
+#[derive(Clone)]
+struct BenchmarkCase {
+    implementation: String,
+    suite_path: PathBuf,
+}
 
 fn suite_paths() -> Vec<PathBuf> {
     let entries = fs::read_dir(Path::new(MANIFEST_DIR).join(SUITE_DIR))
@@ -42,11 +49,43 @@ fn suite_name(path: &Path) -> String {
         .to_owned()
 }
 
-fn run_suite(path: &Path) -> Result<(), String> {
+fn implementation_names() -> Vec<String> {
+    let mut implementations = vec!["default".to_owned()];
+    let impl_root = Path::new(MANIFEST_DIR).join(IMPL_DIR);
+
+    let Ok(entries) = fs::read_dir(impl_root) else {
+        return implementations;
+    };
+
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = match path.file_name().and_then(OsStr::to_str) {
+            Some(value) => value,
+            None => continue,
+        };
+
+        let marker = path.join("lua/termichatter/init.lua");
+        if marker.is_file() {
+            implementations.push(name.to_owned());
+        }
+    }
+
+    implementations.sort();
+    implementations.dedup();
+    implementations
+}
+
+fn run_suite(case: &BenchmarkCase) -> Result<(), String> {
+    let path = case.suite_path.as_path();
     let suite_arg = path.to_string_lossy().into_owned();
 
     let output = Command::new("nvim")
         .current_dir(MANIFEST_DIR)
+        .env("TERMICHATTER_IMPL", &case.implementation)
         .args([
             "--headless",
             "-u",
@@ -65,7 +104,8 @@ fn run_suite(path: &Path) -> Result<(), String> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
-            "suite benchmark command failed for {suite_arg}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            "suite benchmark command failed for implementation={} suite={suite_arg}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+            case.implementation
         ));
     }
 
@@ -74,10 +114,21 @@ fn run_suite(path: &Path) -> Result<(), String> {
 
 fn benchmark_lua_suites(c: &mut Criterion) {
     let suites = suite_paths();
+    let implementations = implementation_names();
+
+    let mut cases = Vec::new();
+    for implementation in implementations {
+        for suite in &suites {
+            cases.push(BenchmarkCase {
+                implementation: implementation.clone(),
+                suite_path: suite.clone(),
+            });
+        }
+    }
 
     let mut preflight_failures = Vec::new();
-    for suite in &suites {
-        if let Err(err) = run_suite(suite) {
+    for case in &cases {
+        if let Err(err) = run_suite(case) {
             preflight_failures.push(err);
         }
     }
@@ -91,12 +142,11 @@ fn benchmark_lua_suites(c: &mut Criterion) {
     group.warm_up_time(Duration::from_secs(2));
     group.measurement_time(Duration::from_secs(10));
 
-    for suite in suites {
-        let id = suite_name(&suite);
-        group.bench_function(BenchmarkId::new("suite", id), |b| {
-            b.iter(|| {
-                run_suite(black_box(suite.as_path())).expect("suite failed during benchmark")
-            });
+    for case in &cases {
+        let suite = suite_name(case.suite_path.as_path());
+        let id = format!("{}/{}", case.implementation, suite);
+        group.bench_function(BenchmarkId::new("impl_suite", id), |b| {
+            b.iter(|| run_suite(black_box(case)).expect("suite failed during benchmark"));
         });
     }
 

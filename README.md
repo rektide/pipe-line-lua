@@ -82,6 +82,11 @@ Tests are organized by module in the `tests/termichatter/` directory.
 
 You can benchmark each Lua test suite (`*_spec.lua`) through Rust Criterion so you get per-suite regression tracking and HTML reports.
 
+Benchmarks run a matrix: `implementation x testsuite`.
+
+- `default` implementation uses the code in `lua/termichatter/`
+- extra implementations are auto-discovered in `implementations/<name>/lua/termichatter/init.lua`
+
 Prerequisites:
 
 - `nvim` available on `PATH`
@@ -99,6 +104,7 @@ What this does:
 - runs `cargo criterion --bench lua_suites`
 - tags the run with a unique `--history-id` (timestamp + git commit)
 - appends run metadata to `.criterion-history/runs.jsonl`
+- benchmarks every discovered `<implementation>/<suite>` pair
 
 Reports:
 
@@ -110,6 +116,28 @@ If you want a one-off manual history label:
 ```bash
 cargo criterion --bench lua_suites --history-id local-change-a
 ```
+
+Run tests against a specific implementation:
+
+```bash
+TERMICHATTER_IMPL=default nvim -l tests/busted.lua
+TERMICHATTER_IMPL=my-new-impl nvim -l tests/busted.lua
+```
+
+Implementation layout:
+
+```text
+implementations/
+  my-new-impl/
+    lua/
+      termichatter/
+        init.lua
+        processors.lua
+        consumer.lua
+        ...
+```
+
+`tests/busted.lua` prepends the selected implementation's Lua path before the default project path, so missing modules can fall back to `lua/termichatter/` while you iterate.
 
 ## Architecture
 
