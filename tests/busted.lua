@@ -2,8 +2,56 @@
 
 -- Add coop.nvim to runtime path and package.path
 local cwd = vim.fn.getcwd()
-vim.opt.runtimepath:prepend(cwd .. "/.test-agent/coop")
 vim.opt.runtimepath:prepend(cwd)
+
+local function has_coop(path)
+	if vim.fn.isdirectory(path) ~= 1 then
+		return false
+	end
+	if vim.fn.isdirectory(path .. "/lua") ~= 1 then
+		return false
+	end
+	if vim.fn.filereadable(path .. "/lua/coop.lua") == 1 then
+		return true
+	end
+	return vim.fn.filereadable(path .. "/lua/coop/init.lua") == 1
+end
+
+local function split_paths(value)
+	local out = {}
+	for item in string.gmatch(value, "[^:;]+") do
+		table.insert(out, vim.fn.expand(vim.trim(item)))
+	end
+	return out
+end
+
+local function coop_candidates()
+	local from_env = vim.env.TERMICHATTER_COOP_PATHS
+	if from_env and from_env ~= "" then
+		return split_paths(from_env)
+	end
+
+	return {
+		cwd .. "/.test-agent/coop",
+		vim.fn.expand("~/archive/gregorias/coop.nvim"),
+		vim.fn.expand("~/src/coop.nvim"),
+	}
+end
+
+local function find_coop_root()
+	local candidates = coop_candidates()
+
+	for _, path in ipairs(candidates) do
+		if has_coop(path) then
+			return path
+		end
+	end
+
+	error("could not find coop.nvim checkout; set TERMICHATTER_COOP_PATHS to a ':' or ';' separated list")
+end
+
+local coop_root = find_coop_root()
+vim.opt.runtimepath:prepend(coop_root)
 
 local impl = vim.env.TERMICHATTER_IMPL or "default"
 local impl_lua_root = cwd .. "/implementations/" .. impl .. "/lua"
@@ -15,8 +63,8 @@ if impl ~= "default" and vim.fn.filereadable(impl_init) == 1 then
 end
 
 -- Add to package.path for require() to work
-package.path = cwd .. "/.test-agent/coop/lua/?.lua;" .. package.path
-package.path = cwd .. "/.test-agent/coop/lua/?/init.lua;" .. package.path
+package.path = coop_root .. "/lua/?.lua;" .. package.path
+package.path = coop_root .. "/lua/?/init.lua;" .. package.path
 package.path = cwd .. "/lua/?.lua;" .. package.path
 package.path = cwd .. "/lua/?/init.lua;" .. package.path
 

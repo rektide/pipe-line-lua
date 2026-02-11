@@ -90,8 +90,14 @@ Benchmarks run a matrix: `implementation x testsuite`.
 Prerequisites:
 
 - `nvim` available on `PATH`
-- test dependency checkout present at `.test-agent/coop`
+- `coop.nvim` checkout in one of: `.test-agent/coop`, `~/archive/gregorias/coop.nvim`, `~/src/coop.nvim`
 - `cargo-criterion` installed (`cargo install cargo-criterion`)
+
+Override coop.nvim lookup paths with `TERMICHATTER_COOP_PATHS` (':' or ';' separated):
+
+```bash
+TERMICHATTER_COOP_PATHS="$HOME/archive/gregorias/coop.nvim:$HOME/src/coop.nvim" nvim -l tests/busted.lua
+```
 
 Run a benchmark pass with automatic history tracking:
 
