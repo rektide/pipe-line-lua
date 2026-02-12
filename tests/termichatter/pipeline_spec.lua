@@ -14,12 +14,12 @@ describe("termichatter.pipeline async", function()
 	describe("queue-based pipeline", function()
 		it("pushes to output queue", function()
 			-- Use sync pipeline so messages go straight to outputQueue
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			module.pipeline = { "timestamper", "cloudevents" }
 			module.queues = {}
 
 			-- Log first (sync), then pop
-			termichatter.log({ message = "test" }, module)
+			module:log({ message = "test" })
 
 			-- Pop should work immediately since message is already there
 			local received = nil
@@ -33,14 +33,14 @@ describe("termichatter.pipeline async", function()
 		end)
 
 		it("processes multiple messages in order", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			module.pipeline = { "timestamper" }
 			module.queues = {}
 
 			-- Log all messages first (sync)
-			termichatter.log({ message = "first" }, module)
-			termichatter.log({ message = "second" }, module)
-			termichatter.log({ message = "third" }, module)
+			module:log({ message = "first" })
+			module:log({ message = "second" })
+			module:log({ message = "third" })
 
 			-- Now collect from output queue
 			local messages = {}
@@ -56,7 +56,7 @@ describe("termichatter.pipeline async", function()
 		end)
 
 		it("supports queue at pipeline step", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			local stepQueue = MpscQueue.new()
 			local afterStep = {}
 
@@ -74,7 +74,7 @@ describe("termichatter.pipeline async", function()
 			end
 
 			-- Log synchronously - should stop at queue
-			termichatter.log({ message = "test" }, module)
+			module:log({ message = "test" })
 
 			-- Message is in queue, not processed yet
 			assert.are.same({}, afterStep)
@@ -85,7 +85,7 @@ describe("termichatter.pipeline async", function()
 				local msg = stepQueue:pop()
 				-- Continue from this step
 				msg.pipeStep = msg.pipeStep + 1
-				termichatter.log(msg, module)
+				module:log(msg)
 			end)
 
 			consumer:await(100, 10)
@@ -107,12 +107,12 @@ describe("termichatter.pipeline async", function()
 
 	describe("recursive context", function()
 		it("child module inherits from parent", function()
-			local parent = termichatter.makePipeline({
+			local parent = termichatter:new({
 				source = "parent:app",
 				customSetting = "inherited",
 			})
 
-			local child = parent:makePipeline({
+			local child = parent:new({
 				source = "parent:app:child",
 			})
 
@@ -121,11 +121,11 @@ describe("termichatter.pipeline async", function()
 		end)
 
 		it("child can override parent settings", function()
-			local parent = termichatter.makePipeline({
+			local parent = termichatter:new({
 				filter = "parent.*",
 			})
 
-			local child = parent:makePipeline({
+			local child = parent:new({
 				filter = "child.*",
 			})
 
@@ -133,8 +133,8 @@ describe("termichatter.pipeline async", function()
 		end)
 
 		it("child has independent pipeline", function()
-			local parent = termichatter.makePipeline()
-			local child = parent:makePipeline({})
+			local parent = termichatter:new()
+			local child = parent:new({})
 
 			child:addProcessor("childOnly", function(msg)
 				return msg
@@ -146,7 +146,7 @@ describe("termichatter.pipeline async", function()
 		end)
 
 		it("log methods inherit module context", function()
-			local module = termichatter.makePipeline({ source = "app:main", module = "submodule" })
+			local module = termichatter:new({ source = "app:main", module = "submodule" })
 			local captured = nil
 
 			module:addProcessor("capture", function(msg)
@@ -163,13 +163,13 @@ describe("termichatter.pipeline async", function()
 
 	describe("multiple producers", function()
 		it("handles concurrent logging", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			module.pipeline = { "timestamper" }
 			module.queues = {}
 
 			-- Multiple producers (sync)
 			for i = 1, 5 do
-				termichatter.log({ producer = i }, module)
+				module:log({ producer = i })
 			end
 
 			-- Now collect

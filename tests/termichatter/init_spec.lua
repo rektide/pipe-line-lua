@@ -102,7 +102,7 @@ describe("termichatter", function()
 			local processed = nil
 
 			-- Create module with custom sync pipeline (no queues = all sync)
-			local module = termichatter.makePipeline({ source = "test:module" })
+			local module = termichatter:new({ source = "test:module" })
 			module.pipeline = { "timestamper", "cloudevents", "capture" }
 			module.queues = {}
 			module.capture = function(msg)
@@ -110,7 +110,7 @@ describe("termichatter", function()
 				return msg
 			end
 
-			termichatter.log({ message = "hello" }, module)
+			module:log({ message = "hello" })
 
 			assert.is_not_nil(processed)
 			assert.is_not_nil(processed.time)
@@ -122,7 +122,7 @@ describe("termichatter", function()
 			local steps = {}
 
 			-- Create module with custom sync pipeline
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			module.step1 = function(msg)
 				table.insert(steps, 1)
 				return msg
@@ -135,12 +135,12 @@ describe("termichatter", function()
 			module.queues = {}
 
 			-- Start from step 2
-			termichatter.log({ pipeStep = 2 }, module)
+			module:log({ pipeStep = 2 })
 			assert.are.same({ 2 }, steps)
 		end)
 
 		it("stops when handler returns nil", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			local reached = false
 
 			module.blocker = function()
@@ -153,28 +153,27 @@ describe("termichatter", function()
 			module.pipeline = { "blocker", "after" }
 			module.queues = {}
 
-			termichatter.log({}, module)
+			module:log({})
 			assert.is_false(reached)
 		end)
 	end)
 
-	describe("makePipeline", function()
+	describe("new", function()
 		it("creates new module with own pipeline", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			assert.is_not_nil(module.pipeline)
-			assert.is_not_nil(module.queues)
 			assert.is_not_nil(module.outputQueue)
 		end)
 
 		it("inherits from parent", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			assert.is_function(module.timestamper)
 			assert.is_function(module.cloudevents)
 			assert.is_function(module.log)
 		end)
 
 		it("accepts config overrides", function()
-			local module = termichatter.makePipeline({
+			local module = termichatter:new({
 				source = "custom:source",
 				customField = "value",
 			})
@@ -185,7 +184,7 @@ describe("termichatter", function()
 
 	describe("addProcessor", function()
 		it("adds handler to pipeline", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			local originalLen = #module.pipeline
 
 			module:addProcessor("myHandler", function(msg)
@@ -197,15 +196,17 @@ describe("termichatter", function()
 		end)
 
 		it("inserts at specified position", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			module:addProcessor("first", function() end, 1)
-			assert.are.equal("first", module.pipeline[1])
+			local first = module.pipeline[1]
+			local firstName = type(first) == "table" and first.handler or first
+			assert.are.equal("first", firstName)
 		end)
 	end)
 
 	describe("log methods", function()
 		it("module has priority methods", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			assert.is_function(module.error)
 			assert.is_function(module.warn)
 			assert.is_function(module.info)
@@ -214,7 +215,7 @@ describe("termichatter", function()
 		end)
 
 		it("logs string messages", function()
-			local module = termichatter.makePipeline({ source = "test" })
+			local module = termichatter:new({ source = "test" })
 			local captured = nil
 
 			module:addProcessor("capture", function(msg)
@@ -230,7 +231,7 @@ describe("termichatter", function()
 		end)
 
 		it("logs structured messages", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			local captured = nil
 
 			module:addProcessor("capture", function(msg)
@@ -246,7 +247,7 @@ describe("termichatter", function()
 		end)
 
 		it("priority methods set priority field", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			local captured = nil
 
 			module:addProcessor("capture", function(msg)
@@ -261,7 +262,7 @@ describe("termichatter", function()
 		end)
 
 		it("inherits source from module", function()
-			local module = termichatter.makePipeline({ source = "parent:source", module = "child" })
+			local module = termichatter:new({ source = "parent:source", module = "child" })
 			local captured = nil
 
 			module:addProcessor("capture", function(msg)

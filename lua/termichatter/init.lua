@@ -27,12 +27,4 @@ for name, handler in pairs(processors) do
 	end
 end
 
-M.makePipeline = function(self, config)
-	if self == M or type(self) ~= "table" or (not self.pipeline and not getmetatable(self)) then
-		config = self
-		self = M
-	end
-	return pipeline.makePipeline(self, config)
-end
-
 return M

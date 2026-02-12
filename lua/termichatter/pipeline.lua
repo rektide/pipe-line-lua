@@ -33,9 +33,7 @@ M.queues = {}
 --- Send a message through the pipeline
 --- Runs sync stages immediately, pushes to queues for async stages
 ---@param msg table the message
----@param self? table the pipeline context (defaults to M)
-M.log = function(msg, self)
-	self = self or M
+function M:log(msg)
 	msg.pipeStep = msg.pipeStep or 1
 
 	local step = msg.pipeStep
@@ -132,7 +130,7 @@ local function logWithPriority(self, msg, priority, level)
 	msg.priorityLevel = level
 	msg.source = msg.source or self.source
 	msg.module = msg.module or self.module
-	M.log(msg, self)
+	self:log(msg)
 	return msg
 end
 
@@ -162,15 +160,10 @@ end
 
 --- Create a new pipeline with its own queues
 --- Inherits handlers from parent, creates independent queues
----@param self? table parent to inherit from
 ---@param config? table configuration overrides
 ---@return table pipeline
-M.makePipeline = function(self, config)
-	-- Handle both M.makePipeline(config) and M:makePipeline(config)
-	if self == M or type(self) ~= "table" or (not self.pipeline and not getmetatable(self)) then
-		config = self
-		self = M
-	end
+
+function M:new(config)
 	config = config or {}
 
 	local pipeline = setmetatable({}, { __index = self })

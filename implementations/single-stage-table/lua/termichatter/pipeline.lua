@@ -56,8 +56,7 @@ local function stage_pipeline(context)
 	return stages
 end
 
-M.log = function(msg, self)
-	self = self or M
+function M:log(msg)
 	msg.pipeStep = msg.pipeStep or 1
 
 	local step = msg.pipeStep
@@ -125,7 +124,7 @@ local function logWithPriority(self, msg, priority, level)
 	msg.priorityLevel = level
 	msg.source = msg.source or self.source
 	msg.module = msg.module or self.module
-	M.log(msg, self)
+	self:log(msg)
 	return msg
 end
 
@@ -149,11 +148,7 @@ function M:trace(msg)
 	return logWithPriority(self, msg, "trace", 6)
 end
 
-M.makePipeline = function(self, config)
-	if self == M or type(self) ~= "table" or (not self.pipeline and not getmetatable(self)) then
-		config = self
-		self = M
-	end
+function M:new(config)
 	config = config or {}
 
 	local pipeline = setmetatable({}, { __index = self })

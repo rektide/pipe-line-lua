@@ -24,7 +24,7 @@ describe("termichatter integration", function()
 			local bufnr = vim.api.nvim_create_buf(false, true)
 
 			-- Create module with output queue
-			local module = termichatter.makePipeline({ source = "test:app" })
+			local module = termichatter:new({ source = "test:app" })
 
 			-- Create buffer outputter
 			local bufOut = outputters.buffer({
@@ -86,7 +86,7 @@ describe("termichatter integration", function()
 			end)
 
 			-- Create module that outputs to filter's input
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			module.outputQueue = inputQ
 
 			-- Log at different levels using module's methods
@@ -121,13 +121,13 @@ describe("termichatter integration", function()
 			local captured = {}
 
 			-- Create root module
-			local root = termichatter.makePipeline({
+			local root = termichatter:new({
 				source = "myapp",
 				environment = "production",
 			})
 
 			-- Create child module (use colon syntax for inheritance)
-			local authModule = root:makePipeline({
+			local authModule = root:new({
 				source = "myapp:auth",
 				component = "authentication",
 			})
@@ -233,7 +233,7 @@ describe("termichatter integration", function()
 
 	describe("multiple producers single consumer", function()
 		it("handles concurrent logging from multiple loggers", function()
-			local module = termichatter.makePipeline()
+			local module = termichatter:new()
 			local received = {}
 
 			-- Start consumer
@@ -248,9 +248,9 @@ describe("termichatter integration", function()
 			end)
 
 			-- Create child modules for each producer
-			local modA = module:makePipeline({ module = "A" })
-			local modB = module:makePipeline({ module = "B" })
-			local modC = module:makePipeline({ module = "C" })
+			local modA = module:new({ module = "A" })
+			local modB = module:new({ module = "B" })
+			local modC = module:new({ module = "C" })
 			-- Point their output to parent's outputQueue
 			modA.outputQueue = module.outputQueue
 			modB.outputQueue = module.outputQueue

@@ -25,8 +25,7 @@ M.makePipelineConsumer = function(queue, step, pipeline)
 				end
 			else
 				msg.pipeStep = step + 1
-				local pipelineMod = require("termichatter.pipeline")
-				pipelineMod.log(msg, pipeline)
+				pipeline:log(msg)
 			end
 		end
 	end
