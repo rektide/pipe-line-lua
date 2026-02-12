@@ -3,8 +3,6 @@
 local M = {}
 
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
-local coop = require("coop")
-local registry = require("termichatter.registry")
 
 --------------------------------------------------
 -- Priority levels
@@ -160,11 +158,9 @@ end
 
 --- Create a new pipeline with its own queues
 --- Inherits handlers from parent, creates independent queues
----@param config? table configuration overrides
+---@param ... table configuration overrides
 ---@return table pipeline
-
-function M:new(config)
-	config = config or {}
+function M:new(...)
 
 	local pipeline = setmetatable({}, { __index = self })
 
@@ -172,12 +168,22 @@ function M:new(config)
 	pipeline.queues = {}
 	local parentQueues = self.queues or {}
 	for i = 1, #pipeline.pipeline do
-		pipeline.queues[i] = parentQueues[i] and MpscQueue.new() or nil
+		local parentQueue = parentQueues[i]
+		if type(parentQueue) == "table" then
+			pipeline.queues[i] = MpscQueue.new()
+		else
+			pipeline.queues[i] = parentQueue
+		end
 	end
 	pipeline.outputQueue = MpscQueue.new()
 
-	for k, v in pairs(config) do
-		pipeline[k] = v
+	for i = 1, select("#", ...) do
+		local config = select(i, ...)
+		if config ~= nil then
+			for k, v in pairs(config) do
+				pipeline[k] = v
+			end
+		end
 	end
 
 	M.startConsumers(pipeline)

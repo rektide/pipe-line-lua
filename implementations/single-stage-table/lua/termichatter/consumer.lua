@@ -31,21 +31,11 @@ M.makePipelineConsumer = function(queue, step, pipeline)
 	end
 end
 
-local function queue_for_stage(stage, pipeline, index)
-	if type(stage) == "table" and (stage.handler ~= nil or stage.queue ~= nil) then
-		return stage.queue
-	end
-	if pipeline.queues then
-		return pipeline.queues[index]
-	end
-	return nil
-end
-
 M.startPipelineConsumers = function(pipeline)
 	pipeline._consumerTasks = pipeline._consumerTasks or {}
 	local stages = pipeline.pipeline or {}
 	for i, stage in ipairs(stages) do
-		local queue = queue_for_stage(stage, pipeline, i)
+		local queue = stage.queue
 		if queue then
 			local consumer = M.makePipelineConsumer(queue, i, pipeline)
 			local task = coop.spawn(consumer)

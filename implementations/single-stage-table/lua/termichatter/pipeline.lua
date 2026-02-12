@@ -20,21 +20,6 @@ M.pipeline = {
 	{ handler = "module_filter" },
 }
 
-local function normalize_stage(item, queue)
-	if type(item) == "table" and (item.handler ~= nil or item.queue ~= nil) then
-		local stage = vim.deepcopy(item)
-		if queue ~= nil then
-			stage.queue = queue
-		end
-		return stage
-	end
-
-	return {
-		handler = item,
-		queue = queue,
-	}
-end
-
 local function stage_queue(stage, context, msg)
 	local queue = stage.queue
 	if type(queue) == "string" then
@@ -46,21 +31,11 @@ local function stage_queue(stage, context, msg)
 	return queue
 end
 
-local function stage_pipeline(context)
-	local current = context.pipeline or M.pipeline
-	local compat_queues = context.queues
-	local stages = {}
-	for i = 1, #current do
-		stages[i] = normalize_stage(current[i], compat_queues and compat_queues[i] or nil)
-	end
-	return stages
-end
-
 function M:log(msg)
 	msg.pipeStep = msg.pipeStep or 1
 
 	local step = msg.pipeStep
-	local stages = stage_pipeline(self)
+	local stages = self.pipeline or M.pipeline
 
 	while step <= #stages do
 		local stage = stages[step]
@@ -93,14 +68,12 @@ function M:log(msg)
 end
 
 M.addProcessor = function(self, name, handler, position, withQueue)
-	local stages = stage_pipeline(self)
-	position = position or (#stages + 1)
+	position = position or (#self.pipeline + 1)
 	self[name] = handler
-	table.insert(stages, position, {
+	table.insert(self.pipeline, position, {
 		handler = name,
 		queue = withQueue and MpscQueue.new() or nil,
 	})
-	self.pipeline = stages
 	return self
 end
 
@@ -148,23 +121,31 @@ function M:trace(msg)
 	return logWithPriority(self, msg, "trace", 6)
 end
 
-function M:new(config)
-	config = config or {}
+function M:new(...)
 
 	local pipeline = setmetatable({}, { __index = self })
 	pipeline.pipeline = {}
 
-	for _, stage in ipairs(stage_pipeline(self)) do
+	for _, stage in ipairs(self.pipeline or M.pipeline) do
+		local queue = stage.queue
+		if type(queue) == "table" then
+			queue = MpscQueue.new()
+		end
 		table.insert(pipeline.pipeline, {
 			handler = stage.handler,
-			queue = stage.queue and MpscQueue.new() or nil,
+			queue = queue,
 		})
 	end
 
 	pipeline.outputQueue = MpscQueue.new()
 
-	for k, v in pairs(config) do
-		pipeline[k] = v
+	for i = 1, select("#", ...) do
+		local config = select(i, ...)
+		if config ~= nil then
+			for k, v in pairs(config) do
+				pipeline[k] = v
+			end
+		end
 	end
 
 	M.startConsumers(pipeline)

@@ -180,6 +180,12 @@ describe("termichatter", function()
 			assert.are.equal("custom:source", module.source)
 			assert.are.equal("value", module.customField)
 		end)
+
+		it("accepts multiple config tables", function()
+			local module = termichatter:new({ source = "first" }, { source = "second", extra = true })
+			assert.are.equal("second", module.source)
+			assert.is_true(module.extra)
+		end)
 	end)
 
 	describe("addProcessor", function()
