@@ -105,6 +105,12 @@ Run a benchmark pass with automatic history tracking:
 cargo run --bin bench-history
 ```
 
+Run only the single-stage-table implementation benchmark:
+
+```bash
+cargo criterion --bench lua_suites_single_stage_table
+```
+
 What this does:
 
 - runs `cargo criterion --bench lua_suites`

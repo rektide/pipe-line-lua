@@ -1,20 +1,15 @@
---- termichatter: Asynchronous structured-data-flow atop coop.nvim
---- Attaches registry to pipeline
+--- termichatter single-stage-table implementation
+--- Uses a unified stage table for handler and queue metadata
 local M = {}
 
 local pipeline = require("termichatter.pipeline")
 local registry = require("termichatter.registry")
-
--- Import modules so they register themselves
 local processors = require("termichatter.processors")
 local consumer = require("termichatter.consumer")
 local outputters = require("termichatter.outputters")
 local drivers = require("termichatter.drivers")
 
--- Start with pipeline as base (log methods inherited via __index)
 setmetatable(M, { __index = pipeline })
-
--- Attach registry
 M.registry = registry
 M.drivers = drivers
 M.processors = processors

@@ -10,6 +10,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 name = "lua_suites"
 harness = false
 
+[[bench]]
+name = "lua_suites_single_stage_table"
+harness = false
+
 [[bin]]
 name = "bench-history"
 path = "src/bin/bench_history.rs"
