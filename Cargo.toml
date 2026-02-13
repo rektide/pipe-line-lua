@@ -14,6 +14,14 @@ harness = false
 name = "lua_suites_single_stage_table"
 harness = false
 
+[[bench]]
+name = "lua_suites_single_stage_mode"
+harness = false
+
+[[bench]]
+name = "lua_pipeline_core_compare"
+harness = false
+
 [[bin]]
 name = "bench-history"
 path = "src/bin/bench_history.rs"
