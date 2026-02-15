@@ -22,6 +22,10 @@ harness = false
 name = "lua_pipeline_core_compare"
 harness = false
 
+[[bench]]
+name = "lua_suites_pipecopy"
+harness = false
+
 [[bin]]
 name = "bench-history"
 path = "src/bin/bench_history.rs"

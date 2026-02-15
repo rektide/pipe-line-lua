@@ -856,6 +856,86 @@ log.info({
 | `createPipeline(stages, inputQ, outputQ)` | Create consumer chain |
 | `withDriver(config)` | Add driver to consumer |
 
+## Appendix: Alternative Implementations
+
+The `implementations/` directory contains experimental variants of the core pipeline. These allow benchmarking and exploration of different architectural approaches.
+
+### Baseline: `lua/termichatter/`
+
+**Parallel arrays pattern**: The default implementation uses two parallel arrays:
+- `pipeline[]` — handler names (strings) or functions
+- `queues[]` — MpscQueue or nil (nil = sync, queue = async)
+
+Full feature set: priorities, registry, protocol (completion/shutdown), outputters, drivers, processors.
+
+### `single-stage-table`
+
+**Unified stage object**: Combines handler and queue into a single table per stage.
+
+```lua
+pipeline[i] = { handler = "name", queue = queueOrNil }
+```
+
+| Aspect | vs Baseline |
+|--------|-------------|
+| Data structure | Coalesces `pipeline[i]` + `queues[i]` into single `{handler, queue}` object |
+| Consumer lookup | Reads `stage.queue` instead of `queues[i]` |
+| Default stages | All sync (no queues on default stages) |
+| Queue cloning | `:new()` clones queue tables into fresh MpscQueue instances |
+
+A minimal refactor preserving identical semantics with coalesced data.
+
+### `single-stage-mode`
+
+**Unified stage with explicit mode metadata**: Adds an explicit `mode` field to declare sync vs mpsc intent.
+
+```lua
+pipeline[i] = { handler = "name", mode = "sync"|"mpsc", queue = ref, _queue = instance }
+```
+
+| Aspect | vs Baseline |
+|--------|-------------|
+| Mode field | Explicit `mode` declares intent rather than inferring from queue presence |
+| Internal queue | Uses `_queue` for the MpscQueue instance, preserves `queue` as lazy reference (string/function) |
+| Stage cloning | `clone_stage()` auto-creates `_queue` when `mode == "mpsc"` |
+| Flexibility | `stage.queue` can be string/function for lazy resolution, `_queue` holds actual instance |
+
+More metadata, clearer intent, supports lazy queue resolution patterns.
+
+### `sync-or-mpsc-core`
+
+**Minimalist experimental core**: Strips all non-essential features to focus on sync/mpsc dispatch.
+
+| Aspect | vs Baseline |
+|--------|-------------|
+| Size | ~210 lines total vs ~480+ baseline |
+| Priorities | **Removed** — no `:info()`, `:error()`, etc. |
+| Default pipeline | Empty `{}` (must be explicitly configured) |
+| Stage flexibility | Accepts `queue = true`, `mode = "mpsc"`, or `async = true` as async triggers |
+| Consumer | Slim 72 lines; no protocol handling (completion/shutdown forwarding removed) |
+| Execution | `_run_from(msg, step)` internal method; `log()` delegates |
+| API | `addStage(stage, pos)` instead of `addProcessor()` |
+
+An experimental core focused solely on sync/mpsc message dispatch mechanics.
+
+### Running Benchmarks
+
+Each implementation can be benchmarked via cargo-criterion:
+
+```bash
+# Run all implementations against all test suites
+cargo run --bin bench-history
+
+# Run specific implementation benchmark
+cargo criterion --bench lua_suites_single_stage_table
+```
+
+Set `TERMICHATTER_IMPL=<name>` to run tests against a specific implementation:
+
+```bash
+TERMICHATTER_IMPL=sync-or-mpsc-core nvim -l tests/busted.lua
+```
+
 ## License
 
 MIT
