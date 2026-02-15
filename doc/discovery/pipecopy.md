@@ -126,3 +126,8 @@ there is a default registry. sub-registries are encouraged to inherit from the d
 # misc
 
 - filenaming: NEVER pluralize a name. ALL identifiers are to be singular in form.
+
+# prompts
+
+- we made termichatter and have some sample implementations, described in @README.md. we want a fresh take, described in @doc/discovery/pipecopy.md , pipecopy. please implement
+- jj commit. then create a fresh README.md in the implementations/pipecopy/ that could be a stand-alone README as though this implenetation was the entire project. then create a new README for ANOTHER implementation, that, instead of using Run, implements a somewhat structurally similar implementation, but which omits an explicit run object, and which instead just passes elements implicitly through the `line`. then jj commit this alternate implementation's readme.
