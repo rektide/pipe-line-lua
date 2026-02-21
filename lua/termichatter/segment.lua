@@ -1,0 +1,114 @@
+--- Standard segment library for termichatter
+--- Common processing segment for pipeline
+local M = {}
+
+--- Timestamper segment: add hrtime timestamp
+---@param run table The run context
+---@return any input Modified input
+function M.timestamper(run)
+	local input = run.input
+	if type(input) == "table" then
+		if not input.time then
+			input.time = vim.uv.hrtime()
+		end
+	end
+	return input
+end
+
+--- CloudEvent enricher segment: add id, source, type, specversion
+---@param run table The run context
+---@return any input Modified input
+function M.cloudevent(run)
+	local input = run.input
+	if type(input) ~= "table" then
+		return input
+	end
+
+	if not input.id then
+		local random = math.random
+		input.id = string.format(
+			"%08x-%04x-%04x-%04x-%012x",
+			random(0, 0xffffffff),
+			random(0, 0xffff),
+			random(0x4000, 0x4fff),
+			random(0x8000, 0xbfff),
+			random(0, 0xffffffffffff)
+		)
+	end
+
+	input.specversion = input.specversion or "1.0"
+	input.source = input.source or run.source or (run.line and run.line.source)
+	input.type = input.type or "termichatter.log"
+
+	return input
+end
+
+--- Module filter segment: filter by source pattern
+--- Returns false to stop pipeline, input to continue
+---@param run table The run context
+---@return any input Input if passes, false if filtered
+function M.module_filter(run)
+	local input = run.input
+	local filter = run.filter or (run.line and run.line.filter)
+
+	if not filter then
+		return input
+	end
+
+	local source = type(input) == "table" and input.source or nil
+	if not source then
+		return input
+	end
+
+	if type(filter) == "function" then
+		if filter(source, input, run) then
+			return input
+		end
+		return false
+	end
+
+	if type(filter) == "string" then
+		if string.match(source, filter) then
+			return input
+		end
+		return false
+	end
+
+	return input
+end
+
+--- Priority filter segment: filter by log level
+--- Returns false to stop pipeline
+---@param run table The run context
+---@return any input Input if passes, false if filtered
+function M.priority_filter(run)
+	local input = run.input
+	local minLevel = run.minLevel or (run.line and run.line.minLevel) or 0
+
+	if type(input) ~= "table" then
+		return input
+	end
+
+	local level = input.priorityLevel or 0
+	if level >= minLevel then
+		return input
+	end
+
+	return false
+end
+
+--- Ingester segment: apply custom decoration
+---@param run table The run context
+---@return any input Modified input
+function M.ingester(run)
+	local input = run.input
+	local ingest = run.ingest or (run.line and run.line.ingest)
+
+	if type(ingest) == "function" then
+		return ingest(input, run)
+	end
+
+	return input
+end
+
+return M

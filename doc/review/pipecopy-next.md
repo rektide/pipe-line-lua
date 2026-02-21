@@ -785,6 +785,151 @@ If clone inherits from the line directly, we get: `clone → line`. Simpler, but
 
 Recommendation: inherit from the parent run. The chain depth equals the fan-out depth, which is bounded in practice. And it gives the right semantics — a cloned element sees everything the parent saw.
 
+---
+
+## Naming: `pipe` vs `segment`
+
+### The Clash
+
+`pipe` is overloaded:
+- Individual processing component (a handler, the thing in the registry)
+- The array of those component on a line (`line.pipe`)
+- Now a first-class object with `rev`, `splice()`, `clone()`
+
+### Resolution: `segment` for Individual Component
+
+| Term | Meaning |
+|------|---------|
+| `pipe` | The connected sequence — the first-class array object on a line, with `rev`/`splice`/`clone` |
+| `segment` | One processing component in the pipe (a handler, the thing in the registry) |
+| `line` | A pipeline definition: holds a `pipe`, a registry, output |
+| `run` | A cursor/context walking a line's pipe, executing segment |
+
+Plumbing metaphor: a pipe is made of segment. A line is a run of pipe. Clean, no clash.
+
+### Impact on API
+
+```lua
+-- registry holds segment
+registry:register("timestamper", segment.timestamper)
+
+-- line.pipe is the array of segment name
+local my_line = line:clone({
+    pipe = make_pipe({ "timestamper", "enricher", "validator" }),
+})
+
+-- pipe object
+my_line.pipe:splice(2, 0, "new_segment")
+my_line.pipe:clone()
+my_line.pipe.rev
+
+-- run resolves segment name from registry
+local handler = run:resolve_segment("timestamper")
+```
+
+### Updated Glossary
+
+| Term | Description |
+|------|-------------|
+| `line` | A series of segment that run a `run` |
+| `pipe` | The connected sequence of segment, a first-class array object |
+| `segment` | A processing component / handler in a pipe |
+| `run` | An execution context walking a pipe, visiting segment |
+| `registry` | A repository of known segment type |
+| `fact` | A named capability or state, tracked on line and/or run |
+
+---
+
+## `fact` Write Interception: `set_fact` vs `__newindex`
+
+### Why `__newindex` on Run Doesn't Work for `fact`
+
+When code does `run.fact.time = true`:
+1. Lua resolves `run.fact` via `__index` → gets `line.fact`
+2. Lua writes `time = true` to `line.fact`
+3. `__newindex` on the run **never fires** — the write targets `fact`, not `run`
+
+To intercept, we'd need `__newindex` on the fact table itself. Three option:
+
+### Option A: Eager Proxy (every run pays)
+
+Create a per-run proxy on run creation that intercepts writes:
+
+```lua
+-- in Run.new:
+local fact_proxy = setmetatable({}, {
+    __index = line.fact,
+    __newindex = function(t, k, v)
+        -- first write: create backing table
+        if not rawget(t, "_own") then
+            rawset(t, "_own", {})
+        end
+        rawget(t, "_own")[k] = v
+    end,
+    __index = function(t, k)
+        local own = rawget(t, "_own")
+        if own and own[k] ~= nil then return own[k] end
+        return line.fact[k]
+    end,
+})
+rawset(run, "fact", fact_proxy)
+```
+
+**Cost:** One proxy table per run, `__index` and `__newindex` fire on every fact access. Hot path overhead.
+
+### Option B: Cached Proxy in `__index` (hidden cost)
+
+Don't create a proxy eagerly, but return one when `run.fact` is accessed:
+
+```lua
+-- in run's __index:
+if k == "fact" then
+    -- problem: this creates a NEW proxy every access
+    -- or: cache it, but then we're back to eager allocation
+end
+```
+
+**Cost:** Either creates garbage on every access, or caches (same as option A).
+
+### Option C: Explicit `set_fact` (zero cost until used)
+
+```lua
+function Run:set_fact(name, value)
+    if value == nil then value = true end
+    local own = rawget(self, "fact")
+    if not own then
+        own = setmetatable({}, { __index = self.line.fact })
+        rawset(self, "fact", own)
+    end
+    own[name] = value
+end
+```
+
+**Cost:** Zero until first `set_fact` call. One table + metatable on first write. Reads (`run.fact.time`) work naturally via metatable chain, no proxy needed.
+
+### Option D: `__newindex` on Run, Only for `fact`
+
+Put `__newindex` on the run itself, intercept writes to the key `"fact"`:
+
+```lua
+__newindex = function(t, k, v)
+    if k == "fact" then
+        -- someone is replacing the whole fact table
+        rawset(t, k, v)
+    else
+        rawset(t, k, v)
+    end
+end
+```
+
+This doesn't help — `run.fact.time = true` doesn't trigger `__newindex` on run. And adding `__newindex` to the run penalizes ALL field writes (`run.pos = 5`, `run.input = el`, etc.) on the hot path.
+
+### Recommendation
+
+**Option C: explicit `set_fact`**. The cost is zero until a segment actually needs per-element fact. The API is clear: `run.fact.time` to read (free, falls through metatable), `run:set_fact("time", value)` to write (lazy allocation). The asymmetry (read via field, write via method) is a reasonable trade for zero-cost default.
+
+If the explicit method feels wrong, consider: pipes already call `run:next()`, `run:clone()`, `run:own()`. One more method call is consistent with "the run is the API surface."
+
 ### Sketch: Kahn's Sort in Lua
 
 ```lua
