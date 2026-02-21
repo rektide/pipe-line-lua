@@ -930,6 +930,85 @@ This doesn't help — `run.fact.time = true` doesn't trigger `__newindex` on run
 
 If the explicit method feels wrong, consider: pipes already call `run:next()`, `run:clone()`, `run:own()`. One more method call is consistent with "the run is the API surface."
 
+---
+
+## Driver as Segment
+
+> Driver never had a clear place in the architecture. They sit outside the pipeline model — a timer calling a callback, disconnected from line/pipe/segment/run. They don't compose.
+
+### Reframe
+
+What driver actually do is control **when to drain a queue**. That's a time-based policy on element flow. If you think of it that way, they're segment with internal async behavior:
+
+| pattern        | as a segment                                                |
+| -------------- | ----------------------------------------------------------- |
+| interval drain | segment accumulates via mpsc, flushes on timer              |
+| batch          | segment collects N element, releases as array               |
+| debounce       | segment delays forwarding until quiet period                |
+| throttle       | segment limits element per time window                      |
+| backoff        | segment adapts drain interval based on queue pressure       |
+
+### Lifecycle
+
+It's up to each segment to define its own lifecycle. As a general practice:
+
+- **Start** when receiving the first element. No setup cost until data actually flows.
+- **Optionally go dormant** if fully drained (no pending element, no active timer). Restart on next element.
+- **Stop** via the completion protocol — when a shutdown signal arrives, flush remaining element and clean up timer.
+
+This means no external "driver.start()" / "driver.stop()" calls. The segment manages itself. The line's completion protocol is the shutdown trigger.
+
+### Sketch: Batch Segment
+
+```lua
+function batch_segment(run)
+    -- lazily init buffer on first element
+    if not run.line._batch_buffer then
+        run.line._batch_buffer = {}
+    end
+    table.insert(run.line._batch_buffer, run.input)
+
+    if #run.line._batch_buffer >= (run.batch_size or 10) then
+        local batch = run.line._batch_buffer
+        run.line._batch_buffer = {}
+        run:next(batch)  -- forward the batch as one element
+    end
+    -- return nil: we handled forwarding (or deferred it)
+end
+```
+
+### Sketch: Debounce Segment
+
+```lua
+function debounce_segment(run)
+    local line = run.line
+    -- cancel pending timer
+    if line._debounce_timer then
+        line._debounce_timer:stop()
+    end
+    -- store latest element
+    line._debounce_latest = run.input
+    -- schedule flush after quiet period
+    if not line._debounce_timer then
+        line._debounce_timer = vim.uv.new_timer()
+    end
+    local delay = run.debounce_ms or 100
+    line._debounce_timer:start(delay, 0, vim.schedule_wrap(function()
+        if line._debounce_latest then
+            local el = line._debounce_latest
+            line._debounce_latest = nil
+            -- need to create a run to forward
+            line:run({ input = el, pos = run.pos + 1 })
+        end
+    end))
+    -- return nil: we'll forward on timer
+end
+```
+
+This collapses driver + consumer + queue into one thing: a segment that manages its own timing. It lives in the registry, sits in the pipe, composes with everything else.
+
+The `driver.lua` module can remain as a utility for user who want raw timer scheduling outside the pipeline, but it's no longer the primary pattern for time-based behavior.
+
 ### Sketch: Kahn's Sort in Lua
 
 ```lua
