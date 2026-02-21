@@ -258,6 +258,63 @@ local myRegistry = registry:derive()
 myRegistry:register("local_segment", handler)
 ```
 
+## lattice resolver
+
+> Dependency injection via pipeline self-rewriting.
+
+the `lattice_resolver` is a segment that inspects what downstream segment `want`, queries the registry for segment that `emit` those fact, computes a satisfiable execution order (Kahn's topological sort), and splices them into the pipe. then removes itself.
+
+### segment metadata
+
+segment can declare what they need and what they produce:
+
+```lua
+registry:register("validator", {
+    wants = { "time" },
+    emits = { "validated" },
+    handler = function(run)
+        run.input.validated = true
+        return run.input
+    end,
+})
+```
+
+built-in segment already carry this metadata. segment without `wants`/`emits` are ignored by the resolver.
+
+### usage
+
+```lua
+local app = termichatter.makePipeline({
+    pipe = { "timestamper", "lattice_resolver", "output_segment" },
+    source = "myapp",
+})
+
+-- if output_segment wants { "validated", "enriched" },
+-- and registry has validator (emits "validated") and enricher (emits "enriched"),
+-- the resolver splices them in:
+--   before: [timestamper, lattice_resolver, output_segment]
+--   after:  [timestamper, enricher, validator, output_segment]
+```
+
+### static resolution
+
+resolve a line's dependency without running the pipeline:
+
+```lua
+local resolver = require("termichatter.resolver")
+resolver.resolve_line(myLine)
+-- modifies myLine.pipe directly, replacing the resolver with injected segment
+```
+
+### how it work
+
+1. collect all `wants` from downstream segment
+2. subtract fact already available (from upstream segment emits + line.fact)
+3. walk the registry for segment that `emit` the unsatisfied fact
+4. Kahn's topological sort: schedule segment whose wants are already met, add their emits to available, repeat
+5. splice sorted segment into the pipe, replacing the resolver
+6. if unsatisfiable (cycle or missing provider), remove self and continue
+
 ## async execution
 
 segment can execute asynchronously via mpsc queue. when a run hits a position with a queue, it pushes the element into the queue and stops. a consumer pops from the queue and continues execution.

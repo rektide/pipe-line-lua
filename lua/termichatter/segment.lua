@@ -3,51 +3,60 @@
 local M = {}
 
 --- Timestamper segment: add hrtime timestamp
----@param run table The run context
----@return any input Modified input
-function M.timestamper(run)
-	local input = run.input
-	if type(input) == "table" then
-		if not input.time then
-			input.time = vim.uv.hrtime()
+M.timestamper = {
+	wants = {},
+	emits = { "time" },
+	---@param run table The run context
+	---@return any input Modified input
+	handler = function(run)
+		local input = run.input
+		if type(input) == "table" then
+			if not input.time then
+				input.time = vim.uv.hrtime()
+			end
 		end
-	end
-	return input
-end
+		return input
+	end,
+}
 
 --- CloudEvent enricher segment: add id, source, type, specversion
----@param run table The run context
----@return any input Modified input
-function M.cloudevent(run)
-	local input = run.input
-	if type(input) ~= "table" then
+M.cloudevent = {
+	wants = {},
+	emits = { "cloudevent" },
+	---@param run table The run context
+	---@return any input Modified input
+	handler = function(run)
+		local input = run.input
+		if type(input) ~= "table" then
+			return input
+		end
+
+		if not input.id then
+			local random = math.random
+			input.id = string.format(
+				"%08x-%04x-%04x-%04x-%012x",
+				random(0, 0xffffffff),
+				random(0, 0xffff),
+				random(0x4000, 0x4fff),
+				random(0x8000, 0xbfff),
+				random(0, 0xffffffffffff)
+			)
+		end
+
+		input.specversion = input.specversion or "1.0"
+		input.source = input.source or run.source or (run.line and run.line.source)
+		input.type = input.type or "termichatter.log"
+
 		return input
-	end
-
-	if not input.id then
-		local random = math.random
-		input.id = string.format(
-			"%08x-%04x-%04x-%04x-%012x",
-			random(0, 0xffffffff),
-			random(0, 0xffff),
-			random(0x4000, 0x4fff),
-			random(0x8000, 0xbfff),
-			random(0, 0xffffffffffff)
-		)
-	end
-
-	input.specversion = input.specversion or "1.0"
-	input.source = input.source or run.source or (run.line and run.line.source)
-	input.type = input.type or "termichatter.log"
-
-	return input
-end
+	end,
+}
 
 --- Module filter segment: filter by source pattern
 --- Returns false to stop pipeline, input to continue
----@param run table The run context
----@return any input Input if passes, false if filtered
-function M.module_filter(run)
+M.module_filter = {
+	wants = {},
+	emits = {},
+	handler = function(run)
 	local input = run.input
 	local filter = run.filter or (run.line and run.line.filter)
 
@@ -75,13 +84,15 @@ function M.module_filter(run)
 	end
 
 	return input
-end
+	end,
+}
 
 --- Priority filter segment: filter by log level
 --- Returns false to stop pipeline
----@param run table The run context
----@return any input Input if passes, false if filtered
-function M.priority_filter(run)
+M.priority_filter = {
+	wants = {},
+	emits = {},
+	handler = function(run)
 	local input = run.input
 	local minLevel = run.minLevel or (run.line and run.line.minLevel) or 0
 
@@ -95,12 +106,14 @@ function M.priority_filter(run)
 	end
 
 	return false
-end
+	end,
+}
 
 --- Ingester segment: apply custom decoration
----@param run table The run context
----@return any input Modified input
-function M.ingester(run)
+M.ingester = {
+	wants = {},
+	emits = {},
+	handler = function(run)
 	local input = run.input
 	local ingest = run.ingest or (run.line and run.line.ingest)
 
@@ -109,6 +122,7 @@ function M.ingester(run)
 	end
 
 	return input
-end
+	end,
+}
 
 return M

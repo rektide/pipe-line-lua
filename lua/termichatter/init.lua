@@ -12,6 +12,7 @@ local consumer = require("termichatter.consumer")
 local outputter = require("termichatter.outputter")
 local driver = require("termichatter.driver")
 local protocol = require("termichatter.protocol")
+local resolver = require("termichatter.resolver")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 M.inherit = inherit
@@ -25,6 +26,7 @@ M.outputter = outputter
 M.driver = driver
 M.protocol = protocol
 M.completion = protocol
+M.resolver = resolver
 
 -- Register built-in segment
 registry:register("timestamper", segment.timestamper)
@@ -33,6 +35,7 @@ registry:register("cloudevents", segment.cloudevent)
 registry:register("module_filter", segment.module_filter)
 registry:register("priority_filter", segment.priority_filter)
 registry:register("ingester", segment.ingester)
+registry:register("lattice_resolver", resolver.lattice_resolver)
 
 M.defaultSegment = {
 	"timestamper",
@@ -51,7 +54,7 @@ M.priority = {
 }
 
 -- expose segment handler directly for backward compat
-M.timestamper = segment.timestamper
+M.timestamper = segment.timestamper.handler
 M.cloudevents = function(msg, ctx)
 	-- v1 compat: segment receives (msg, ctx), but new segment receives (run)
 	-- wrap to support both calling convention
