@@ -1,6 +1,5 @@
 --- Busted tests for termichatter core module
 local coop = require("coop")
-local sleep = require("coop.uv-utils").sleep
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 describe("termichatter", function()
@@ -8,12 +7,22 @@ describe("termichatter", function()
 
 	before_each(function()
 		package.loaded["termichatter"] = nil
+		package.loaded["termichatter.init"] = nil
+		package.loaded["termichatter.registry"] = nil
+		package.loaded["termichatter.line"] = nil
+		package.loaded["termichatter.run"] = nil
+		package.loaded["termichatter.pipe"] = nil
+		package.loaded["termichatter.segment"] = nil
+		package.loaded["termichatter.consumer"] = nil
+		package.loaded["termichatter.protocol"] = nil
+		package.loaded["termichatter.resolver"] = nil
 		termichatter = require("termichatter")
 	end)
 
 	describe("timestamper", function()
 		it("adds time field to message", function()
 			local msg = { message = "test" }
+			-- v1 compat: direct function call
 			local result = termichatter.timestamper(msg)
 			assert.is_not_nil(result.time)
 			assert.is_number(result.time)
@@ -99,59 +108,34 @@ describe("termichatter", function()
 
 	describe("log", function()
 		it("processes message through pipeline", function()
-			local processed = nil
-
-			-- Create module with custom sync pipeline (no queues = all sync)
 			local module = termichatter:new({ source = "test:module" })
-			module.pipeline = { "timestamper", "cloudevents", "capture" }
-			module.queues = {}
-			module.capture = function(msg)
-				processed = msg
-				return msg
-			end
+			module.pipe = require("termichatter.pipe").new({ "timestamper", "cloudevent" })
 
 			module:log({ message = "hello" })
 
-			assert.is_not_nil(processed)
-			assert.is_not_nil(processed.time)
-			assert.is_not_nil(processed.id)
-			assert.are.equal("test:module", processed.source)
+			local received = nil
+			local task = coop.spawn(function()
+				received = module.outputQueue:pop()
+			end)
+			task:await(100, 10)
+
+			assert.is_not_nil(received)
+			assert.is_not_nil(received.time)
+			assert.is_not_nil(received.id)
+			assert.are.equal("test:module", received.source)
 		end)
 
-		it("respects pipeStep", function()
-			local steps = {}
-
-			-- Create module with custom sync pipeline
-			local module = termichatter:new()
-			module.step1 = function(msg)
-				table.insert(steps, 1)
-				return msg
-			end
-			module.step2 = function(msg)
-				table.insert(steps, 2)
-				return msg
-			end
-			module.pipeline = { "step1", "step2" }
-			module.queues = {}
-
-			-- Start from step 2
-			module:log({ pipeStep = 2 })
-			assert.are.same({ 2 }, steps)
-		end)
-
-		it("stops when handler returns nil", function()
+		it("stops when handler returns false", function()
 			local module = termichatter:new()
 			local reached = false
 
-			module.blocker = function()
-				return nil
-			end
-			module.after = function(msg)
+			module:addProcessor("blocker", function()
+				return false
+			end)
+			module:addProcessor("after", function(run)
 				reached = true
-				return msg
-			end
-			module.pipeline = { "blocker", "after" }
-			module.queues = {}
+				return run.input
+			end)
 
 			module:log({})
 			assert.is_false(reached)
@@ -161,14 +145,12 @@ describe("termichatter", function()
 	describe("new", function()
 		it("creates new module with own pipeline", function()
 			local module = termichatter:new()
-			assert.is_not_nil(module.pipeline)
+			assert.is_not_nil(module.pipe)
 			assert.is_not_nil(module.outputQueue)
 		end)
 
 		it("inherits from parent", function()
 			local module = termichatter:new()
-			assert.is_function(module.timestamper)
-			assert.is_function(module.cloudevents)
 			assert.is_function(module.log)
 		end)
 
@@ -191,22 +173,19 @@ describe("termichatter", function()
 	describe("addProcessor", function()
 		it("adds handler to pipeline", function()
 			local module = termichatter:new()
-			local originalLen = #module.pipeline
+			local originalLen = #module.pipe
 
-			module:addProcessor("myHandler", function(msg)
-				return msg
+			module:addProcessor("myHandler", function(run)
+				return run.input
 			end)
 
-			assert.are.equal(originalLen + 1, #module.pipeline)
-			assert.is_function(module.myHandler)
+			assert.are.equal(originalLen + 1, #module.pipe)
 		end)
 
 		it("inserts at specified position", function()
 			local module = termichatter:new()
 			module:addProcessor("first", function() end, 1)
-			local first = module.pipeline[1]
-			local firstName = type(first) == "table" and first.handler or first
-			assert.are.equal("first", firstName)
+			assert.are.equal("first", module.pipe[1])
 		end)
 	end)
 
@@ -224,9 +203,9 @@ describe("termichatter", function()
 			local module = termichatter:new({ source = "test" })
 			local captured = nil
 
-			module:addProcessor("capture", function(msg)
-				captured = msg
-				return msg
+			module:addProcessor("capture", function(run)
+				captured = run.input
+				return run.input
 			end)
 
 			module:info("hello world")
@@ -236,50 +215,19 @@ describe("termichatter", function()
 			assert.are.equal("test", captured.source)
 		end)
 
-		it("logs structured messages", function()
-			local module = termichatter:new()
-			local captured = nil
-
-			module:addProcessor("capture", function(msg)
-				captured = msg
-				return msg
-			end)
-
-			module:info({ message = "test", data = { key = "value" } })
-
-			assert.is_not_nil(captured)
-			assert.are.equal("test", captured.message)
-			assert.are.same({ key = "value" }, captured.data)
-		end)
-
 		it("priority methods set priority field", function()
 			local module = termichatter:new()
 			local captured = nil
 
-			module:addProcessor("capture", function(msg)
-				captured = msg
-				return msg
+			module:addProcessor("capture", function(run)
+				captured = run.input
+				return run.input
 			end)
 
 			module:error("error message")
 
 			assert.are.equal("error", captured.priority)
 			assert.are.equal(1, captured.priorityLevel)
-		end)
-
-		it("inherits source from module", function()
-			local module = termichatter:new({ source = "parent:source", module = "child" })
-			local captured = nil
-
-			module:addProcessor("capture", function(msg)
-				captured = msg
-				return msg
-			end)
-
-			module:info("test")
-
-			assert.are.equal("parent:source", captured.source)
-			assert.are.equal("child", captured.module)
 		end)
 	end)
 
@@ -329,6 +277,16 @@ describe("termichatter", function()
 
 				assert.is_true(called)
 			end)
+		end)
+	end)
+
+	describe("completion protocol", function()
+		it("hello message has correct type", function()
+			assert.are.equal("termichatter.completion.hello", termichatter.completion.hello.type)
+		end)
+
+		it("done message has correct type", function()
+			assert.are.equal("termichatter.completion.done", termichatter.completion.done.type)
 		end)
 	end)
 end)

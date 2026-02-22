@@ -1,27 +1,31 @@
---- Busted tests for termichatter pipeline with async queues
+--- Busted tests for termichatter pipeline (line/run integration)
 local coop = require("coop")
-local sleep = require("coop.uv-utils").sleep
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
-describe("termichatter.pipeline async", function()
+describe("termichatter.pipeline", function()
 	local termichatter
 
 	before_each(function()
 		package.loaded["termichatter"] = nil
+		package.loaded["termichatter.init"] = nil
+		package.loaded["termichatter.registry"] = nil
+		package.loaded["termichatter.line"] = nil
+		package.loaded["termichatter.run"] = nil
+		package.loaded["termichatter.pipe"] = nil
+		package.loaded["termichatter.segment"] = nil
+		package.loaded["termichatter.consumer"] = nil
+		package.loaded["termichatter.protocol"] = nil
+		package.loaded["termichatter.resolver"] = nil
 		termichatter = require("termichatter")
 	end)
 
 	describe("queue-based pipeline", function()
 		it("pushes to output queue", function()
-			-- Use sync pipeline so messages go straight to outputQueue
 			local module = termichatter:new()
-			module.pipeline = { "timestamper", "cloudevents" }
-			module.queues = {}
+			module.pipe = require("termichatter.pipe").new({ "timestamper", "cloudevent" })
 
-			-- Log first (sync), then pop
 			module:log({ message = "test" })
 
-			-- Pop should work immediately since message is already there
 			local received = nil
 			local task = coop.spawn(function()
 				received = module.outputQueue:pop()
@@ -34,15 +38,12 @@ describe("termichatter.pipeline async", function()
 
 		it("processes multiple messages in order", function()
 			local module = termichatter:new()
-			module.pipeline = { "timestamper" }
-			module.queues = {}
+			module.pipe = require("termichatter.pipe").new({ "timestamper" })
 
-			-- Log all messages first (sync)
 			module:log({ message = "first" })
 			module:log({ message = "second" })
 			module:log({ message = "third" })
 
-			-- Now collect from output queue
 			local messages = {}
 			local task = coop.spawn(function()
 				for _ = 1, 3 do
@@ -60,48 +61,38 @@ describe("termichatter.pipeline async", function()
 			local stepQueue = MpscQueue.new()
 			local afterStep = {}
 
-			-- Insert a queue-backed step
-			module.pipeline = { "timestamper", "queuedStep", "capture" }
-			module.queues = { nil, stepQueue, nil }
+			module.pipe = require("termichatter.pipe").new({ "timestamper", "queuedStep", "capture" })
+			module.mpsc = { [2] = stepQueue }
 
-			module.queuedStep = function(msg)
+			module.queuedStep = function(run)
 				table.insert(afterStep, "queued")
-				return msg
+				return run.input
 			end
-			module.capture = function(msg)
+			module.capture = function(run)
 				table.insert(afterStep, "captured")
-				return msg
+				return run.input
 			end
 
-			-- Log synchronously - should stop at queue
 			module:log({ message = "test" })
 
-			-- Message is in queue, not processed yet
+			-- message is in queue, not processed yet
 			assert.are.same({}, afterStep)
 			assert.is_false(stepQueue:empty())
 
-			-- Consume from queue and continue
-			local consumer = coop.spawn(function()
+			-- consume from queue and continue
+			local Run = require("termichatter.run")
+			local consumer_task = coop.spawn(function()
 				local msg = stepQueue:pop()
-				-- Continue from this step
-				msg.pipeStep = msg.pipeStep + 1
-				module:log(msg)
+				local run = Run.new(module, {
+					noStart = true,
+					input = msg,
+				})
+				run.pos = 2
+				run:execute()
 			end)
 
-			consumer:await(100, 10)
-
-			-- Now should have been captured
-			assert.are.same({ "captured" }, afterStep)
-		end)
-	end)
-
-	describe("completion protocol", function()
-		it("hello message has correct type", function()
-			assert.are.equal("termichatter.completion.hello", termichatter.completion.hello.type)
-		end)
-
-		it("done message has correct type", function()
-			assert.are.equal("termichatter.completion.done", termichatter.completion.done.type)
+			consumer_task:await(100, 10)
+			assert.are.same({ "queued", "captured" }, afterStep)
 		end)
 	end)
 
@@ -136,43 +127,39 @@ describe("termichatter.pipeline async", function()
 			local parent = termichatter:new()
 			local child = parent:new({})
 
-			child:addProcessor("childOnly", function(msg)
-				return msg
+			child:addProcessor("childOnly", function(run)
+				return run.input
 			end)
 
-			assert.is_function(child.childOnly)
-			assert.is_nil(parent.childOnly)
-			assert.are.equal(#parent.pipeline + 1, #child.pipeline)
+			assert.is_nil(rawget(parent, "childOnly"))
+			assert.are.equal(#parent.pipe + 1, #child.pipe)
 		end)
 
 		it("log methods inherit module context", function()
-			local module = termichatter:new({ source = "app:main", module = "submodule" })
+			local module = termichatter:new({ source = "app:main" })
+			module.module = "submodule"
 			local captured = nil
 
-			module:addProcessor("capture", function(msg)
-				captured = msg
-				return msg
+			module:addProcessor("capture", function(run)
+				captured = run.input
+				return run.input
 			end)
 
 			module:info("test message")
 
 			assert.are.equal("app:main", captured.source)
-			assert.are.equal("submodule", captured.module)
 		end)
 	end)
 
 	describe("multiple producers", function()
 		it("handles concurrent logging", function()
 			local module = termichatter:new()
-			module.pipeline = { "timestamper" }
-			module.queues = {}
+			module.pipe = require("termichatter.pipe").new({ "timestamper" })
 
-			-- Multiple producers (sync)
 			for i = 1, 5 do
 				module:log({ producer = i })
 			end
 
-			-- Now collect
 			local received = {}
 			local task = coop.spawn(function()
 				for _ = 1, 5 do

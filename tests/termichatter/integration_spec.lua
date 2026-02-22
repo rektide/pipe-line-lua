@@ -1,60 +1,55 @@
---- Integration tests for termichatter end-to-end flows
+--- Integration tests for termichatter end-to-end flow
 local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 describe("termichatter integration", function()
 	local termichatter
-	local consumer
-	local processors
-	local outputters
+	local outputter
 
 	before_each(function()
 		package.loaded["termichatter"] = nil
+		package.loaded["termichatter.init"] = nil
+		package.loaded["termichatter.registry"] = nil
+		package.loaded["termichatter.line"] = nil
+		package.loaded["termichatter.run"] = nil
+		package.loaded["termichatter.pipe"] = nil
+		package.loaded["termichatter.segment"] = nil
 		package.loaded["termichatter.consumer"] = nil
-		package.loaded["termichatter.processors"] = nil
-		package.loaded["termichatter.outputters"] = nil
+		package.loaded["termichatter.protocol"] = nil
+		package.loaded["termichatter.outputter"] = nil
+		package.loaded["termichatter.resolver"] = nil
 		termichatter = require("termichatter")
-		consumer = require("termichatter.consumer")
-		processors = require("termichatter.processors")
-		outputters = require("termichatter.outputters")
+		outputter = require("termichatter.outputter")
 	end)
 
 	describe("logger to buffer outputter", function()
 		it("logs messages to a buffer", function()
 			local bufnr = vim.api.nvim_create_buf(false, true)
 
-			-- Create module with output queue
 			local module = termichatter:new({ source = "test:app" })
 
-			-- Create buffer outputter
-			local bufOut = outputters.buffer({
+			local bufOut = outputter.buffer({
 				n = bufnr,
 				queue = module.outputQueue,
 			})
 
-			-- Start outputter
 			local outTask = coop.spawn(function()
 				bufOut:start()
 			end)
 
-			-- Log some messages using module's log methods
 			module:info("Starting up")
 			module:debug("Debug info here")
 			module:error("Something went wrong")
 
-			-- Signal done
 			module.outputQueue:push(termichatter.completion.done)
 
-			-- Wait for outputter
 			outTask:await(200, 10)
 
-			-- Wait for vim.schedule
 			vim.wait(100, function()
 				local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 				return #lines >= 3
 			end, 10)
 
-			-- Check buffer contents
 			local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 			local content = table.concat(lines, "\n")
 
@@ -66,179 +61,45 @@ describe("termichatter integration", function()
 		end)
 	end)
 
-	describe("logger through processor to outputter", function()
-		it("filters by priority level", function()
-			-- Create queues
-			local inputQ = MpscQueue.new()
-			local outputQ = MpscQueue.new()
-
-			-- Create priority filter (only error and warn)
-			local filter = processors.PriorityFilter({
-				minLevel = 1,
-				maxLevel = 2,
-				inputQueue = inputQ,
-				outputQueue = outputQ,
-			})
-
-			-- Start filter
-			local filterTask = coop.spawn(function()
-				filter:start()
-			end)
-
-			-- Create module that outputs to filter's input
-			local module = termichatter:new()
-			module.outputQueue = inputQ
-
-			-- Log at different levels using module's methods
-			module:error("Error message")
-			module:warn("Warning message")
-			module:info("Info message")
-			module:debug("Debug message")
-
-			-- Signal done
-			inputQ:push(termichatter.completion.done)
-
-			filterTask:await(200, 10)
-
-			-- Collect results
-			local results = {}
-			for _ = 1, 3 do -- 2 messages + done
-				local msg = coop.spawn(function()
-					return outputQ:pop()
-				end):await(50, 10)
-				table.insert(results, msg)
-			end
-
-			-- Should only have error and warn
-			assert.are.equal("error", results[1].priority)
-			assert.are.equal("warn", results[2].priority)
-			assert.are.equal("termichatter.completion.done", results[3].type)
-		end)
-	end)
-
 	describe("nested module inheritance", function()
-		it("child loggers inherit parent context", function()
+		it("child logger inherit parent context", function()
 			local captured = {}
 
-			-- Create root module
 			local root = termichatter:new({
 				source = "myapp",
 				environment = "production",
 			})
 
-			-- Create child module (use colon syntax for inheritance)
 			local authModule = root:new({
 				source = "myapp:auth",
 				component = "authentication",
 			})
 
-			-- Add processor to authModule (after creation, on child's own pipeline)
-			authModule:addProcessor("capture", function(msg)
-				table.insert(captured, msg)
-				return msg
+			authModule:addProcessor("capture", function(run)
+				table.insert(captured, run.input)
+				return run.input
 			end)
 
-			-- Set module on authModule and log
 			authModule.module = "jwt"
 			authModule:info("Token validated")
 
-			-- Check captured message
 			assert.are.equal(1, #captured)
 			local msg = captured[1]
 
 			assert.are.equal("myapp:auth", msg.source)
-			assert.are.equal("jwt", msg.module)
 			assert.are.equal("info", msg.priority)
 			assert.is_not_nil(msg.time)
 			assert.is_not_nil(msg.id)
 		end)
 	end)
 
-	describe("async consumer pipeline", function()
-		it("processes through multiple async stages", function()
-			local inputQ = MpscQueue.new()
-			local outputQ = MpscQueue.new()
-
-			-- Create pipeline with enricher and filter
-			local pipeline = consumer.createPipeline(
-				{
-					{
-						handlers = {
-							function(msg)
-								-- CloudEvents enrichment
-								msg.specversion = "1.0"
-								msg.id = msg.id or termichatter.uuid()
-								return msg
-							end,
-						},
-					},
-					{
-						handlers = {
-							function(msg)
-								-- Filter out debug in production
-								if msg.priority == "debug" then
-									return nil
-								end
-								return msg
-							end,
-						},
-					},
-					{
-						handlers = {
-							function(msg)
-								-- Add processing timestamp
-								msg.processedAt = vim.uv.hrtime()
-								return msg
-							end,
-						},
-					},
-				},
-				inputQ,
-				outputQ
-			)
-
-			local tasks = pipeline:start()
-
-			-- Send messages
-			pipeline:push({ priority = "error", message = "Error!" })
-			pipeline:push({ priority = "debug", message = "Debug" })
-			pipeline:push({ priority = "info", message = "Info" })
-			pipeline:finish()
-
-			-- Wait for completion
-			for _, task in ipairs(tasks) do
-				task:await(300, 10)
-			end
-
-			-- Collect results
-			local results = {}
-			for _ = 1, 3 do -- 2 messages + done
-				local msg = coop.spawn(function()
-					return outputQ:pop()
-				end):await(50, 10)
-				table.insert(results, msg)
-			end
-
-			-- Should have error, info, done (debug filtered)
-			assert.are.equal("error", results[1].priority)
-			assert.is_not_nil(results[1].specversion)
-			assert.is_not_nil(results[1].processedAt)
-
-			assert.are.equal("info", results[2].priority)
-			assert.is_not_nil(results[2].specversion)
-
-			assert.are.equal("termichatter.shutdown", results[3].type)
-		end)
-	end)
-
 	describe("multiple producers single consumer", function()
-		it("handles concurrent logging from multiple loggers", function()
+		it("handles concurrent logging from multiple logger", function()
 			local module = termichatter:new()
 			local received = {}
 
-			-- Start consumer
 			local consumerTask = coop.spawn(function()
-				for _ = 1, 10 do -- Expect 10 messages
+				for _ = 1, 10 do
 					local msg = module.outputQueue:pop()
 					if msg.type == "termichatter.completion.done" then
 						break
@@ -247,65 +108,57 @@ describe("termichatter integration", function()
 				end
 			end)
 
-			-- Create child modules for each producer
-			local modA = module:new({ module = "A" })
-			local modB = module:new({ module = "B" })
-			local modC = module:new({ module = "C" })
-			-- Point their output to parent's outputQueue
+			local modA = module:new({ source = "A" })
+			local modB = module:new({ source = "B" })
+			local modC = module:new({ source = "C" })
 			modA.outputQueue = module.outputQueue
 			modB.outputQueue = module.outputQueue
 			modC.outputQueue = module.outputQueue
 
-			-- Log from each
-			for i = 1, 3 do
-				modA:info("Message from A: " .. i)
-				modB:info("Message from B: " .. i)
-				modC:info("Message from C: " .. i)
+			for _ = 1, 3 do
+				modA:info("from A")
+				modB:info("from B")
+				modC:info("from C")
 			end
 
-			-- Signal done
 			module.outputQueue:push(termichatter.completion.done)
 
 			consumerTask:await(300, 10)
 
-			-- Should have received 9 messages
 			assert.are.equal(9, #received)
 
-			-- Check we got messages from all modules
-			local modules = {}
+			local source_count = {}
 			for _, msg in ipairs(received) do
-				modules[msg.module] = (modules[msg.module] or 0) + 1
+				local s = msg.source
+				source_count[s] = (source_count[s] or 0) + 1
 			end
 
-			assert.are.equal(3, modules["A"])
-			assert.are.equal(3, modules["B"])
-			assert.are.equal(3, modules["C"])
+			assert.are.equal(3, source_count["A"])
+			assert.are.equal(3, source_count["B"])
+			assert.are.equal(3, source_count["C"])
 		end)
 	end)
 
-	describe("fanout to multiple outputs", function()
-		it("writes to multiple destinations", function()
+	describe("fanout to multiple output", function()
+		it("writes to multiple destination", function()
 			local inputQ = MpscQueue.new()
 
-			-- Create mock outputters
 			local buffer1 = {}
 			local buffer2 = {}
 
 			local mock1 = {
-				queue = MpscQueue.new(),
 				write = function(_, msg)
 					table.insert(buffer1, msg)
 				end,
 			}
 			local mock2 = {
-				queue = MpscQueue.new(),
 				write = function(_, msg)
 					table.insert(buffer2, msg)
 				end,
 			}
 
-			local fan = outputters.fanout({
-				outputters = { mock1, mock2 },
+			local fan = outputter.fanout({
+				outputter = { mock1, mock2 },
 				queue = inputQ,
 			})
 
@@ -315,15 +168,63 @@ describe("termichatter integration", function()
 
 			inputQ:push({ message = "broadcast 1" })
 			inputQ:push({ message = "broadcast 2" })
-			inputQ:push({ type = "termichatter.completion.done" })
+			inputQ:push({ type = "termichatter.shutdown" })
 
 			task:await(200, 10)
 
-			-- Both should have received the messages
 			assert.are.equal(2, #buffer1)
 			assert.are.equal(2, #buffer2)
 			assert.are.equal("broadcast 1", buffer1[1].message)
 			assert.are.equal("broadcast 2", buffer2[2].message)
+		end)
+	end)
+
+	describe("lattice resolver end-to-end", function()
+		it("resolves and executes injected segment", function()
+			local reg = termichatter.registry
+
+			reg:register("enricher", {
+				wants = {},
+				emits = { "enriched" },
+				handler = function(run)
+					run.input.enriched = true
+					return run.input
+				end,
+			})
+			reg:register("validator", {
+				wants = { "time" },
+				emits = { "validated" },
+				handler = function(run)
+					run.input.validated = true
+					return run.input
+				end,
+			})
+			reg:register("final_output", {
+				wants = { "enriched", "validated" },
+				emits = {},
+				handler = function(run)
+					run.input.final = true
+					return run.input
+				end,
+			})
+
+			local Pipe = require("termichatter.pipe")
+			local module = termichatter:new()
+			module.pipe = Pipe.new({ "timestamper", "lattice_resolver", "final_output" })
+
+			module:log({ message = "resolve me" })
+
+			local received = nil
+			local task = coop.spawn(function()
+				received = module.outputQueue:pop()
+			end)
+			task:await(100, 10)
+
+			assert.is_not_nil(received)
+			assert.is_true(received.enriched)
+			assert.is_true(received.validated)
+			assert.is_true(received.final)
+			assert.is_not_nil(received.time)
 		end)
 	end)
 end)

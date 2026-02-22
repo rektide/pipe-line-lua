@@ -3,276 +3,112 @@ local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 describe("termichatter.consumer", function()
-	local consumer
+	local consumer, protocol, Pipe, line, registry
 
 	before_each(function()
 		package.loaded["termichatter.consumer"] = nil
+		package.loaded["termichatter.protocol"] = nil
+		package.loaded["termichatter.pipe"] = nil
+		package.loaded["termichatter.line"] = nil
+		package.loaded["termichatter.run"] = nil
+		package.loaded["termichatter.registry"] = nil
 		consumer = require("termichatter.consumer")
+		protocol = require("termichatter.protocol")
+		Pipe = require("termichatter.pipe")
+		line = require("termichatter.line")
+		registry = require("termichatter.registry")
 	end)
 
-	describe("create", function()
-		it("creates consumer with queues", function()
-			local inputQ = MpscQueue.new()
-			local outputQ = MpscQueue.new()
+	local function make_line(segment_list, extra)
+		extra = extra or {}
+		local l = line:clone({
+			pipe = Pipe.new(segment_list),
+			registry = registry,
+			output = MpscQueue.new(),
+		})
+		for k, v in pairs(extra) do
+			l[k] = v
+		end
+		return l
+	end
 
-			local c = consumer.create({
-				inputQueue = inputQ,
-				outputQueue = outputQ,
-			})
+	describe("make_consumer", function()
+		it("processes message from queue through segment", function()
+			local processed = false
+			registry:register("marker", { handler = function(run)
+				processed = true
+				return run.input
+			end })
 
-			assert.are.equal(inputQ, c.inputQueue)
-			assert.are.equal(outputQ, c.outputQueue)
-		end)
+			local queue = MpscQueue.new()
+			local l = make_line({ "marker" })
+			l.mpsc = { [1] = queue }
 
-		it("processes messages through handlers", function()
-			local inputQ = MpscQueue.new()
-			local outputQ = MpscQueue.new()
+			local consume = consumer.make_consumer(l, 1, queue)
 
-			local c = consumer.create({
-				inputQueue = inputQ,
-				outputQueue = outputQ,
-				handlers = {
-					function(msg)
-						msg.step1 = true
-						return msg
-					end,
-					function(msg)
-						msg.step2 = true
-						return msg
-					end,
-				},
-			})
+			queue:push({ message = "test" })
+			queue:push(vim.deepcopy(protocol.shutdown))
 
-			local result = c:process({ original = true })
-
-			assert.is_true(result.original)
-			assert.is_true(result.step1)
-			assert.is_true(result.step2)
-		end)
-
-		it("stops processing if handler returns nil", function()
-			local inputQ = MpscQueue.new()
-
-			local c = consumer.create({
-				inputQueue = inputQ,
-				handlers = {
-					function(msg)
-						return nil
-					end,
-					function(msg)
-						msg.shouldNotRun = true
-						return msg
-					end,
-				},
-			})
-
-			local result = c:process({ test = true })
-
-			assert.is_nil(result)
-		end)
-
-		it("consumes from queue async", function()
-			local inputQ = MpscQueue.new()
-			local outputQ = MpscQueue.new()
-
-			local c = consumer.create({
-				inputQueue = inputQ,
-				outputQueue = outputQ,
-				handlers = {
-					function(msg)
-						msg.processed = true
-						return msg
-					end,
-				},
-			})
-
-			local task = c:spawn()
-
-			inputQ:push({ message = "test" })
-			inputQ:push({ type = "termichatter.completion.done" })
-
+			local task = coop.spawn(consume)
 			task:await(200, 10)
 
-			-- Output queue should have processed message + done
-			local msg1 = coop.spawn(function()
-				return outputQ:pop()
-			end):await(50, 10)
-
-			assert.is_true(msg1.processed)
-			assert.are.equal("test", msg1.message)
+			assert.is_true(processed)
 		end)
 
-		it("forwards done message to output", function()
-			local inputQ = MpscQueue.new()
-			local outputQ = MpscQueue.new()
+		it("forwards shutdown to output", function()
+			local queue = MpscQueue.new()
+			local l = make_line({})
+			l.mpsc = { [1] = queue }
 
-			local c = consumer.create({
-				inputQueue = inputQ,
-				outputQueue = outputQ,
-			})
+			local consume = consumer.make_consumer(l, 1, queue)
 
-			local task = c:spawn()
+			queue:push(vim.deepcopy(protocol.shutdown))
 
-			inputQ:push({ type = "termichatter.completion.done" })
-
+			local task = coop.spawn(consume)
 			task:await(100, 10)
 
 			local msg = coop.spawn(function()
-				return outputQ:pop()
+				return l.output:pop()
+			end):await(50, 10)
+
+			assert.are.equal("termichatter.shutdown", msg.type)
+		end)
+
+		it("forwards completion signal to output", function()
+			local queue = MpscQueue.new()
+			local l = make_line({})
+			l.mpsc = { [1] = queue }
+
+			local consume = consumer.make_consumer(l, 1, queue)
+
+			queue:push(vim.deepcopy(protocol.done))
+			queue:push(vim.deepcopy(protocol.shutdown))
+
+			local task = coop.spawn(consume)
+			task:await(100, 10)
+
+			local msg = coop.spawn(function()
+				return l.output:pop()
 			end):await(50, 10)
 
 			assert.are.equal("termichatter.completion.done", msg.type)
 		end)
-
-		it("adds handlers dynamically", function()
-			local inputQ = MpscQueue.new()
-			local c = consumer.create({ inputQueue = inputQ, handlers = {} })
-
-			c:addHandler(function(msg)
-				msg.added = true
-				return msg
-			end)
-
-			local result = c:process({})
-			assert.is_true(result.added)
-		end)
 	end)
 
-	describe("createPipeline", function()
-		it("creates connected consumers", function()
-			local inputQ = MpscQueue.new()
-			local outputQ = MpscQueue.new()
+	describe("start_consumer / stop_consumer", function()
+		it("starts and stops consumer for async stage", function()
+			registry:register("async_seg", { handler = function(run)
+				return run.input
+			end })
 
-			local pipeline = consumer.createPipeline(
-				{
-					{
-						handlers = {
-							function(msg)
-								msg.stage1 = true
-								return msg
-							end,
-						},
-					},
-					{
-						handlers = {
-							function(msg)
-								msg.stage2 = true
-								return msg
-							end,
-						},
-					},
-				},
-				inputQ,
-				outputQ
-			)
+			local l = make_line({ "async_seg" })
+			l:ensure_mpsc(1)
 
-			assert.are.equal(2, #pipeline.consumers)
-			assert.are.equal(2, #pipeline.queues) -- input + intermediate
-		end)
+			local task_list = consumer.start_consumer(l)
+			assert.is_true(#task_list > 0)
 
-		it("processes messages through all stages", function()
-			local inputQ = MpscQueue.new()
-			local outputQ = MpscQueue.new()
-
-			local pipeline = consumer.createPipeline(
-				{
-					{
-						handlers = {
-							function(msg)
-								msg.stage1 = true
-								return msg
-							end,
-						},
-					},
-					{
-						handlers = {
-							function(msg)
-								msg.stage2 = true
-								return msg
-							end,
-						},
-					},
-				},
-				inputQ,
-				outputQ
-			)
-
-			local tasks = pipeline:start()
-
-			pipeline:push({ message = "test" })
-			pipeline:finish()
-
-			-- Wait for all consumers to complete
-			for _, task in ipairs(tasks) do
-				task:await(200, 10)
-			end
-
-			-- Check output
-			local msg = coop.spawn(function()
-				return outputQ:pop()
-			end):await(50, 10)
-
-			assert.are.equal("test", msg.message)
-			assert.is_true(msg.stage1)
-			assert.is_true(msg.stage2)
-		end)
-
-		it("filters messages between stages", function()
-			local inputQ = MpscQueue.new()
-			local outputQ = MpscQueue.new()
-
-			local pipeline = consumer.createPipeline(
-				{
-					{
-						handlers = {
-							function(msg)
-								if msg.keep then
-									return msg
-								end
-								return nil
-							end,
-						},
-					},
-					{
-						handlers = {
-							function(msg)
-								msg.passedFilter = true
-								return msg
-							end,
-						},
-					},
-				},
-				inputQ,
-				outputQ
-			)
-
-			local tasks = pipeline:start()
-
-			pipeline:push({ message = "kept", keep = true })
-			pipeline:push({ message = "filtered", keep = false })
-			pipeline:push({ message = "also kept", keep = true })
-			pipeline:finish()
-
-			for _, task in ipairs(tasks) do
-				task:await(200, 10)
-			end
-
-			-- Should only get 2 messages + done
-			local results = {}
-			for _ = 1, 3 do
-				local msg = coop.spawn(function()
-					return outputQ:pop()
-				end):await(50, 10)
-				table.insert(results, msg)
-			end
-
-			-- First two should be the kept messages
-			assert.are.equal("kept", results[1].message)
-			assert.is_true(results[1].passedFilter)
-			assert.are.equal("also kept", results[2].message)
-			assert.is_true(results[2].passedFilter)
-			-- Third should be shutdown
-			assert.are.equal("termichatter.shutdown", results[3].type)
+			consumer.stop_consumer(l)
+			assert.are.equal(0, #l._consumer_task)
 		end)
 	end)
 end)
