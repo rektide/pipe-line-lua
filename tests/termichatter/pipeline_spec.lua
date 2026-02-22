@@ -87,8 +87,12 @@ describe("termichatter.pipeline", function()
 					noStart = true,
 					input = msg,
 				})
+				-- execute the segment at pos 2 manually, then advance
 				run.pos = 2
-				run:execute()
+				local handler = run:resolve(run.pipe[2])
+				local result = handler(run)
+				if result ~= nil then run.input = result end
+				run:next()
 			end)
 
 			consumer_task:await(100, 10)

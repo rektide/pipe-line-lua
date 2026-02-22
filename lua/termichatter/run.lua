@@ -106,14 +106,15 @@ end
 ---@return any result Final result
 function Run:execute()
 	self:sync()
-	while self.pos <= #self.pipe do
+	local pipe = self.pipe
+	while self.pos <= #pipe do
 		local queue = self:get_queue()
 		if queue then
 			queue:push(self.input)
 			return
 		end
 
-		local seg = self.pipe[self.pos]
+		local seg = pipe[self.pos]
 		local handler = self:resolve(seg)
 		if handler then
 			local result = handler(self)
@@ -183,19 +184,18 @@ function Run:own(field)
 		local source = current or self.line.pipe
 		rawset(self, "pipe", source:clone())
 	elseif field == "fact" then
-		local current = rawget(self, "fact")
 		local snapshot = {}
-		-- collect line fact
+		-- collect all visible fact: line.fact is the base
 		local line_fact = self.line and self.line.fact or {}
 		for k, v in pairs(line_fact) do
 			snapshot[k] = v
 		end
-		-- overlay with own fact
-		if current then
-			for k, v in pairs(current) do
-				if k ~= "__index" then
-					snapshot[k] = v
-				end
+		-- overlay with fact visible to this run (via metatable chain)
+		-- self.fact traverses __index, picking up parent run fact + line fact
+		local visible = self.fact
+		if visible and visible ~= line_fact then
+			for k, v in pairs(visible) do
+				snapshot[k] = v
 			end
 		end
 		rawset(self, "fact", snapshot) -- no more __index

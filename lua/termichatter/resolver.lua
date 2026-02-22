@@ -230,40 +230,16 @@ function M.lattice_resolver(run)
 		if not keep then
 			run:own("pipe")
 			run.pipe:splice(pos, 1)
-			-- pos-1 so execute()'s pos++ lands at pos (first remaining segment)
-			run.pos = pos - 1
+			run.pos = pos
 		end
 		return run.input
 	end
 
-	-- 4. find provider segment (iteratively expand for transitive dependency)
+	-- 4. find provider segment
 	if not emits_index then
 		emits_index = M.build_emits_index(registry)
 	end
-	local candidate_set = {}
-	local candidate = {}
-	local search_want = unsatisfied_set
-	while next(search_want) do
-		local found = find_provider_indexed(search_want, emits_index)
-		local next_want = {}
-		for _, entry in ipairs(found) do
-			if not candidate_set[entry.name] then
-				candidate_set[entry.name] = true
-				table.insert(candidate, entry)
-				-- check if this candidate has unsatisfied wants
-				for _, w in ipairs(entry.wants) do
-					if not available[w] and not unsatisfied_set[w] then
-						next_want[w] = true
-						unsatisfied_set[w] = true
-					end
-				end
-			end
-		end
-		if not next(next_want) then
-			break
-		end
-		search_want = next_want
-	end
+	local candidate = find_provider_indexed(unsatisfied_set, emits_index)
 
 	-- 5. topological sort
 	local sorted = M.kahn_sort(candidate, available)
@@ -271,7 +247,7 @@ function M.lattice_resolver(run)
 		if not keep then
 			run:own("pipe")
 			run.pipe:splice(pos, 1)
-			run.pos = pos - 1
+			run.pos = pos
 		end
 		return run.input
 	end
@@ -286,13 +262,11 @@ function M.lattice_resolver(run)
 	if keep then
 		-- insert after self, keep self in pipe
 		run.pipe:splice(pos + 1, 0, unpack(name_list))
-		-- pos stays: execute() will ++ past resolver to first injected
 	else
 		-- replace self with resolved segment
 		run.pipe:splice(pos, 1, unpack(name_list))
-		-- pos-1 so execute()'s pos++ lands at pos (first injected segment)
-		run.pos = pos - 1
 	end
+	run.pos = pos
 
 	return run.input
 end
@@ -364,31 +338,7 @@ function M.resolve_line(target_line, opt)
 		return {}
 	end
 
-	-- iteratively expand for transitive dependency
-	local candidate_set = {}
-	local candidate = {}
-	local search_want = unsatisfied_set
-	while next(search_want) do
-		local found = find_provider_indexed(search_want, emits_index)
-		local next_want = {}
-		for _, entry in ipairs(found) do
-			if not candidate_set[entry.name] then
-				candidate_set[entry.name] = true
-				table.insert(candidate, entry)
-				for _, w in ipairs(entry.wants) do
-					if not available[w] and not unsatisfied_set[w] then
-						next_want[w] = true
-						unsatisfied_set[w] = true
-					end
-				end
-			end
-		end
-		if not next(next_want) then
-			break
-		end
-		search_want = next_want
-	end
-
+	local candidate = find_provider_indexed(unsatisfied_set, emits_index)
 	local sorted = M.kahn_sort(candidate, available)
 	if not sorted then
 		return nil

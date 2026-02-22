@@ -54,7 +54,18 @@ M.priority = {
 }
 
 -- expose segment handler directly for backward compat
-M.timestamper = segment.timestamper.handler
+-- v1 calling convention: timestamper(msg) not timestamper(run)
+M.timestamper = function(msg)
+	if type(msg) == "table" and msg.input then
+		return segment.timestamper.handler(msg)
+	end
+	if type(msg) == "table" then
+		if not msg.time then
+			msg.time = vim.uv.hrtime()
+		end
+	end
+	return msg
+end
 M.cloudevents = function(msg, ctx)
 	-- v1 compat: segment receives (msg, ctx), but new segment receives (run)
 	-- wrap to support both calling convention
@@ -92,17 +103,15 @@ M.module_filter = function(msg, ctx)
 	if not filter then
 		return msg
 	end
-	local source = type(msg) == "table" and msg.source or nil
-	if not source then
-		return msg
-	end
 	if type(filter) == "function" then
 		if filter(msg) then
 			return msg
 		end
 		return nil
 	end
+	local source = type(msg) == "table" and msg.source or nil
 	if type(filter) == "string" then
+		if not source then return msg end
 		if string.match(source, filter) then
 			return msg
 		end
@@ -222,7 +231,9 @@ function M.makePipeline(config)
 	end
 
 	-- v1 compat: priority method directly on line
+	-- skip "log" to avoid overwriting the pipeline :log method
 	for name, level in pairs(M.priority) do
+		if name == "log" then goto skip_priority end
 		newLine[name] = function(self, msg)
 			if type(msg) == "string" then
 				msg = { message = msg }
@@ -232,6 +243,7 @@ function M.makePipeline(config)
 			msg.priorityLevel = level
 			return self:log(msg)
 		end
+		::skip_priority::
 	end
 
 	function newLine:startConsumer()
