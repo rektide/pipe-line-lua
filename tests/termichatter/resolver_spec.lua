@@ -15,6 +15,7 @@ describe("termichatter.resolver", function()
 		Pipe = require("termichatter.pipe")
 		line = require("termichatter.line")
 		Run = require("termichatter.run")
+		registry:register("lattice_resolver", resolver.lattice_resolver)
 	end)
 
 	local function make_line(segment_list, extra)
@@ -250,6 +251,71 @@ describe("termichatter.resolver", function()
 			end
 			assert.is_true(has_custom)
 		end)
+
+		it("handles multi-level dependency chain", function()
+			registry:register("base", {
+				wants = {},
+				emits = { "base_fact" },
+				handler = function(run) return run.input end,
+			})
+			registry:register("middle", {
+				wants = { "base_fact" },
+				emits = { "middle_fact" },
+				handler = function(run) return run.input end,
+			})
+			registry:register("final_seg", {
+				wants = { "middle_fact" },
+				emits = {},
+				handler = function(run) return run.input end,
+			})
+
+			local l = make_line({ "lattice_resolver", "final_seg" })
+			local r = Run.new(l, { input = {} })
+
+			-- should splice base then middle, in order
+			assert.are.equal("base", r.pipe[1])
+			assert.are.equal("middle", r.pipe[2])
+			assert.are.equal("final_seg", r.pipe[3])
+		end)
+
+		it("does not duplicate segment already in pipe", function()
+			registry:register("existing", {
+				wants = {},
+				emits = { "exists" },
+				handler = function(run) return run.input end,
+			})
+			registry:register("wants_existing", {
+				wants = { "exists" },
+				emits = {},
+				handler = function(run) return run.input end,
+			})
+
+			-- "existing" already in pipe before resolver
+			local l = make_line({ "existing", "lattice_resolver", "wants_existing" })
+			local r = Run.new(l, { input = {} })
+
+			-- should NOT add another "existing"
+			local count = 0
+			for _, s in ipairs(r.pipe) do
+				if s == "existing" then count = count + 1 end
+			end
+			assert.are.equal(1, count)
+		end)
+
+		it("unsatisfiable removes self and continues", function()
+			registry:register("impossible", {
+				wants = { "nonexistent_fact" },
+				emits = {},
+				handler = function(run) return run.input end,
+			})
+
+			local l = make_line({ "lattice_resolver", "impossible" })
+			local r = Run.new(l, { input = { ok = true } })
+
+			-- resolver should remove self, pipe continues
+			-- impossible's wants won't be met but resolver doesn't error
+			assert.is_true(r.input.ok)
+		end)
 	end)
 
 	describe("resolve_line (static)", function()
@@ -295,6 +361,27 @@ describe("termichatter.resolver", function()
 			-- resolver removed, pipe is just producer2, consumer2
 			assert.are.equal(2, #l.pipe)
 		end)
+
+		it("accepts emits_index option", function()
+			registry:register("idx_dep", {
+				wants = {},
+				emits = { "idx_fact" },
+				handler = function() end,
+			})
+			registry:register("idx_consumer", {
+				wants = { "idx_fact" },
+				emits = {},
+				handler = function() end,
+			})
+
+			local index = resolver.build_emits_index(registry)
+			local l = make_line({ "lattice_resolver", "idx_consumer" })
+			local sorted = resolver.resolve_line(l, { emits_index = index })
+
+			assert.is_not_nil(sorted)
+			assert.are.equal(1, #sorted)
+			assert.are.equal("idx_dep", l.pipe[1])
+		end)
 	end)
 
 	describe("create factory", function()
@@ -303,6 +390,70 @@ describe("termichatter.resolver", function()
 			assert.is_not_nil(seg.handler)
 			assert.is_table(seg.wants)
 			assert.is_table(seg.emits)
+		end)
+
+		it("created segment applies keep option", function()
+			registry:register("factory_dep", {
+				wants = {},
+				emits = { "factory_fact" },
+				handler = function(run) return run.input end,
+			})
+			registry:register("factory_consumer", {
+				wants = { "factory_fact" },
+				emits = {},
+				handler = function(run) return run.input end,
+			})
+
+			local seg = resolver.create({ keep = true })
+			registry:register("my_resolver", seg)
+
+			local l = make_line({ "my_resolver", "factory_consumer" })
+			local r = Run.new(l, { input = {} })
+
+			-- resolver should stay in pipe
+			local found = false
+			for _, s in ipairs(r.pipe) do
+				if s == "my_resolver" then found = true end
+			end
+			assert.is_true(found)
+		end)
+
+		it("created segment applies lookahead option", function()
+			registry:register("la_dep", {
+				wants = {},
+				emits = { "la_near" },
+				handler = function(run) return run.input end,
+			})
+			registry:register("la_far_dep", {
+				wants = {},
+				emits = { "la_far" },
+				handler = function(run) return run.input end,
+			})
+			registry:register("la_near_seg", {
+				wants = { "la_near" },
+				emits = {},
+				handler = function(run) return run.input end,
+			})
+			registry:register("la_far_seg", {
+				wants = { "la_far" },
+				emits = {},
+				handler = function(run) return run.input end,
+			})
+
+			local seg = resolver.create({ lookahead = 1 })
+			registry:register("la_resolver", seg)
+
+			local l = make_line({ "la_resolver", "la_near_seg", "la_far_seg" })
+			local r = Run.new(l, { input = {} })
+
+			local has_near = false
+			local has_far = false
+			for _, s in ipairs(r.pipe) do
+				if s == "la_dep" then has_near = true end
+				if s == "la_far_dep" then has_far = true end
+			end
+			assert.is_true(has_near)
+			assert.is_false(has_far)
 		end)
 	end)
 end)
