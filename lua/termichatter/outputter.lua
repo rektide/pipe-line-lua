@@ -1,20 +1,22 @@
 --- Outputter: destination for processed message
 local protocol = require("termichatter.protocol")
+local util = require("termichatter.util")
 
 local M = {}
 
 --- Buffer outputter: write to nvim buffer
----@param config table { bufnr?: number, n?: number, name?: string, format?: function, queue?: table }
+---@param config table { bufnr?: number, n?: number, name?: string, format?: function, inspect?: function, queue?: table }
 ---@return table outputter
 function M.buffer(config)
 	config = config or {}
 	local bufnr = config.bufnr or config.n
 	local queue = config.queue
+	local inspect_fn = config.inspect or util.inspect
 	local format = config.format or function(msg)
 		if type(msg) == "string" then
 			return msg
 		end
-		return vim.inspect(msg)
+		return inspect_fn(msg)
 	end
 
 	local out = {
@@ -57,15 +59,16 @@ function M.buffer(config)
 end
 
 --- File outputter: append to file
----@param config table { filename: string, format?: function }
+---@param config table { filename: string, format?: function, inspect?: function }
 ---@return table outputter
 function M.file(config)
 	local filename = config.filename
+	local inspect_fn = config.inspect or util.inspect
 	local format = config.format or function(msg)
 		if type(msg) == "string" then
 			return msg
 		end
-		return vim.inspect(msg)
+		return inspect_fn(msg)
 	end
 
 	return {
@@ -83,10 +86,11 @@ function M.file(config)
 end
 
 --- JSONL outputter: write JSON Line
----@param config table { filename: string }
+---@param config table { filename: string, inspect?: function }
 ---@return table outputter
 function M.jsonl(config)
 	local filename = config.filename
+	local inspect_fn = config.inspect or util.inspect
 
 	return {
 		type = "outputter",
@@ -94,7 +98,7 @@ function M.jsonl(config)
 		write = function(self, msg)
 			local ok, json = pcall(vim.json.encode, msg)
 			if not ok then
-				json = vim.inspect(msg)
+				json = inspect_fn(msg)
 			end
 			local f = io.open(filename, "a")
 			if f then
