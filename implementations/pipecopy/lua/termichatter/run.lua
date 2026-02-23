@@ -250,6 +250,9 @@ end
 ---@return any result Final result
 function M:execute()
 	while self.pos <= #self.pipe do
+		self.current = get_current(self)
+		self.posName = get_pos_name(self)
+
 		local queue = self:get_queue()
 		if queue then
 			queue:push(self.input)
@@ -258,6 +261,7 @@ function M:execute()
 
 		local handler = self:resolve(self.current)
 		if handler then
+			local pos_before = self.pos
 			local result = self:exec()
 			if result == false then
 				return nil
@@ -265,9 +269,15 @@ function M:execute()
 			if result ~= nil then
 				self.input = result
 			end
+			-- if handler changed pos (e.g. resolver splice), don't auto-advance
+			if self.pos ~= pos_before then
+				-- pos was modified by handler, re-loop from new pos
+			else
+				self:next()
+			end
+		else
+			self:next()
 		end
-
-		self:next()
 	end
 
 	local output = self.output or self.outputQueue
