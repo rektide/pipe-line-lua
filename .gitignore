@@ -1,6 +1,9 @@
 # Test artifacts
 .tests/
 
+# Lua dependencies
+deps/
+
 # Lua artifacts
 *.luac
 luacov.stats.out
