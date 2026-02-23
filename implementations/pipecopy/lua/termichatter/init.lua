@@ -133,9 +133,19 @@ function M.makePipeline(config)
 	end
 
 	function newLine:makePipeline(subConfig)
+		subConfig = subConfig or {}
 		local child = M.makePipeline(subConfig)
+		-- child shares parent's output unless explicitly overridden
+		if not subConfig.output then
+			child.output = self.output
+			child.outputQueue = self.outputQueue
+		end
 		setmetatable(child, { __index = self })
 		return child
+	end
+
+	function newLine:new(config)
+		return self:makePipeline(config)
 	end
 
 	function newLine:startConsumer()
@@ -163,11 +173,14 @@ function M.makePipeline(config)
 	return newLine
 end
 
---- Create a new module instance (alias for makePipeline)
+--- Create a new module instance, inheriting from self
 ---@param config? table { pipe?: string[], source?: string, ... }
 ---@return table module The new module with logging method
 function M:new(config)
-	return M.makePipeline(config)
+	if self == M then
+		return M.makePipeline(config)
+	end
+	return self:makePipeline(config)
 end
 
 setmetatable(M, { __index = line })
