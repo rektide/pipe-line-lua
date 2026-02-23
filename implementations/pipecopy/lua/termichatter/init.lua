@@ -21,11 +21,18 @@ M.consumer = consumer
 M.outputter = outputter
 M.driver = driver
 
+local resolver_mod = require("termichatter.resolver")
+
 registry:register("timestamper", pipe.timestamper)
 registry:register("cloudevent", pipe.cloudevent)
 registry:register("module_filter", pipe.module_filter)
 registry:register("priority_filter", pipe.priority_filter)
 registry:register("ingester", pipe.ingester)
+registry:register("lattice_resolver", {
+	wants = {},
+	emits = {},
+	handler = resolver_mod.lattice_resolver,
+})
 
 M.defaultPipe = {
 	"timestamper",
@@ -41,6 +48,11 @@ M.priority = {
 	log = 4,
 	debug = 5,
 	trace = 6,
+}
+
+M.completion = {
+	hello = { type = "termichatter.completion.hello" },
+	done = { type = "termichatter.completion.done" },
 }
 
 --- Create a new line (pipeline) with optional config
@@ -111,6 +123,15 @@ function M.makePipeline(config)
 		return logger
 	end
 
+	function newLine:addProcessor(name, handler, pos)
+		if handler then
+			local reg = self.registry or registry
+			reg:register(name, handler)
+		end
+		pos = pos or (#self.pipe + 1)
+		self.pipe:splice(pos, 0, name)
+	end
+
 	function newLine:makePipeline(subConfig)
 		local child = M.makePipeline(subConfig)
 		setmetatable(child, { __index = self })
@@ -125,7 +146,28 @@ function M.makePipeline(config)
 		consumer.stop_consumer(self)
 	end
 
+	for name, level in pairs(M.priority) do
+		if name ~= "log" then
+			newLine[name] = function(self, msg)
+				if type(msg) == "string" then
+					msg = { message = msg }
+				end
+				msg = msg or {}
+				msg.priority = name
+				msg.priorityLevel = level
+				return self:log(msg)
+			end
+		end
+	end
+
 	return newLine
+end
+
+--- Create a new module instance (alias for makePipeline)
+---@param config? table { pipe?: string[], source?: string, ... }
+---@return table module The new module with logging method
+function M:new(config)
+	return M.makePipeline(config)
 end
 
 setmetatable(M, { __index = line })

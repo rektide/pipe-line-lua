@@ -14,9 +14,10 @@ function M.buffer(config)
 		return vim.inspect(msg)
 	end
 
-	return {
+	local inst = {
 		type = "outputter",
 		name = "buffer",
+		queue = config.queue,
 		write = function(self, msg)
 			if not bufnr then
 				bufnr = vim.api.nvim_create_buf(false, true)
@@ -24,14 +25,32 @@ function M.buffer(config)
 					vim.api.nvim_buf_set_name(bufnr, config.name)
 				end
 			end
-			local line = format(msg)
-			local line_array = type(line) == "table" and line or { line }
-			vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, line_array)
+			local text = format(msg)
+			local text_array
+			if type(text) == "table" then
+				text_array = text
+			else
+				text_array = vim.split(tostring(text), "\n", { plain = true })
+			end
+			vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, text_array)
 		end,
 		bufnr = function(self)
 			return bufnr
 		end,
+		start = function(self)
+			if not self.queue then return end
+			while true do
+				local msg = self.queue:pop()
+				if not msg then break end
+				if type(msg) == "table" and (msg.type == "termichatter.shutdown" or msg.type == "termichatter.completion.done") then
+					break
+				end
+				self:write(msg)
+			end
+		end,
 	}
+
+	return inst
 end
 
 --- File outputter: append to file
@@ -93,6 +112,7 @@ function M.fanout(config)
 		type = "outputter",
 		name = "fanout",
 		outputter = outputter,
+		queue = config.queue,
 		write = function(self, msg)
 			for _, out in ipairs(self.outputter) do
 				if out.write then
@@ -102,6 +122,17 @@ function M.fanout(config)
 		end,
 		add = function(self, out)
 			table.insert(self.outputter, out)
+		end,
+		start = function(self)
+			if not self.queue then return end
+			while true do
+				local msg = self.queue:pop()
+				if not msg then break end
+				if type(msg) == "table" and (msg.type == "termichatter.shutdown" or msg.type == "termichatter.completion.done") then
+					break
+				end
+				self:write(msg)
+			end
 		end,
 	}
 end

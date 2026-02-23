@@ -2,11 +2,12 @@
 --- The pipeline, a line of pipe
 local inherit = require("termichatter.inherit")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
+local Pipe = require("termichatter.pipe")
 
 local M = {}
 
 M.type = "line"
-M.pipe = {}
+M.pipe = Pipe.new({})
 M.mpsc = {}
 M.rev = 0
 
@@ -99,7 +100,7 @@ end
 function M:clone(config)
 	local child = inherit.derive(self, {
 		type = "line",
-		pipe = {},
+		pipe = Pipe.new({}),
 		mpsc = {},
 		rev = 0,
 		output = MpscQueue.new(),
@@ -112,9 +113,10 @@ function M:clone(config)
 	if config then
 		for k, v in pairs(config) do
 			if k == "pipe" and type(v) == "table" then
-				child.pipe = {}
-				for i, p in ipairs(v) do
-					child.pipe[i] = p
+				if v.rev ~= nil and v.splice then
+					child.pipe = v
+				else
+					child.pipe = Pipe.new(v)
 				end
 			else
 				child[k] = v

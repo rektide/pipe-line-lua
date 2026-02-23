@@ -3,6 +3,51 @@
 
 local M = {}
 
+--- Create a new Pipe array object with splice/clone support
+---@param entries? table Array of segment name
+---@return table pipe Pipe array object
+function M.new(entries)
+	local p = {}
+	for i, e in ipairs(entries or {}) do
+		p[i] = e
+	end
+	p.rev = 0
+	p.splice_journal = {}
+
+	function p:splice(startIndex, deleteCount, ...)
+		local new = { ... }
+		local deleted = {}
+		for i = 1, deleteCount do
+			local idx = startIndex + i - 1
+			if self[idx] then
+				table.insert(deleted, self[idx])
+			end
+		end
+		for _ = 1, deleteCount do
+			table.remove(self, startIndex)
+		end
+		for i, pipe in ipairs(new) do
+			table.insert(self, startIndex + i - 1, pipe)
+		end
+		self.rev = self.rev + 1
+		table.insert(self.splice_journal, {
+			rev = self.rev,
+			start = startIndex,
+			deleted = deleteCount,
+			inserted = #new,
+		})
+		return deleted
+	end
+
+	function p:clone()
+		local c = M.new(self)
+		c.rev = self.rev
+		return c
+	end
+
+	return p
+end
+
 --- Timestamper pipe: add hrtime timestamp
 ---@param run table The run context
 ---@return any input Modified input or original

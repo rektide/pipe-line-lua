@@ -194,10 +194,12 @@ function M:push(data)
 	local nextPos = self.pos + 1
 
 	if nextPos > #self.pipe then
-		if self.output then
-			self.output:push(data)
-		elseif self.line and self.line.output then
-			self.line.output:push(data)
+		local output = self.output or self.outputQueue
+		if not output and self.line then
+			output = self.line.output or self.line.outputQueue
+		end
+		if output then
+			output:push(data)
 		end
 		return
 	end
@@ -215,6 +217,32 @@ function M:push(data)
 		self.pos = saved_pos
 		self.current = get_current(self)
 		self.posName = get_pos_name(self)
+	end
+end
+
+--- Take ownership of a field, creating a private copy on this run
+---@param field string Field name to own ("pipe", "fact", etc.)
+function M:own(field)
+	if field == "pipe" then
+		local current = self.pipe
+		if current and current.clone then
+			rawset(self, "pipe", current:clone())
+		else
+			local PipeMod = require("termichatter.pipe")
+			rawset(self, "pipe", PipeMod.new(current or {}))
+		end
+	elseif field == "fact" then
+		local current = self.fact or {}
+		local snapshot = {}
+		for k, v in pairs(current) do
+			snapshot[k] = v
+		end
+		rawset(self, "fact", snapshot)
+	else
+		local current = self[field]
+		if current ~= nil then
+			rawset(self, field, current)
+		end
 	end
 end
 
@@ -242,10 +270,12 @@ function M:execute()
 		self:next()
 	end
 
-	if self.output then
-		self.output:push(self.input)
-	elseif self.line and self.line.output then
-		self.line.output:push(self.input)
+	local output = self.output or self.outputQueue
+	if not output and self.line then
+		output = self.line.output or self.line.outputQueue
+	end
+	if output then
+		output:push(self.input)
 	end
 
 	return self.input
@@ -258,9 +288,13 @@ end
 function M.new(line, config)
 	config = config or {}
 
-	local pipe = {}
-	for i, p in ipairs(line.pipe or {}) do
-		pipe[i] = p
+	local PipeMod = require("termichatter.pipe")
+	local src_pipe = line.pipe or {}
+	local pipe
+	if src_pipe.clone then
+		pipe = src_pipe:clone()
+	else
+		pipe = PipeMod.new(src_pipe)
 	end
 
 	local run = inherit.derive(line, {
@@ -269,7 +303,7 @@ function M.new(line, config)
 		pipe = pipe,
 		pos = 1,
 		mpsc = line.mpsc,
-		output = line.output,
+		output = line.output or line.outputQueue,
 		input = config.input,
 	})
 
