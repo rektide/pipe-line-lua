@@ -15,6 +15,11 @@ describe("termichatter.resolver", function()
 		Pipe = require("termichatter.pipe")
 		line = require("termichatter.line")
 		Run = require("termichatter.run")
+		registry:register("lattice_resolver", {
+			wants = {},
+			emits = {},
+			handler = resolver.lattice_resolver,
+		})
 	end)
 
 	local function make_line(segment_list, extra)

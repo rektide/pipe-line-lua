@@ -106,15 +106,14 @@ end
 ---@return any result Final result
 function Run:execute()
 	self:sync()
-	local pipe = self.pipe
-	while self.pos <= #pipe do
+	while self.pos <= #self.pipe do
 		local queue = self:get_queue()
 		if queue then
 			queue:push(self.input)
 			return
 		end
 
-		local seg = pipe[self.pos]
+		local seg = self.pipe[self.pos]
 		local handler = self:resolve(seg)
 		if handler then
 			local result = handler(self)

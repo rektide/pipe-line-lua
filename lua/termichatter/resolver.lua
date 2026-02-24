@@ -230,7 +230,7 @@ function M.lattice_resolver(run)
 		if not keep then
 			run:own("pipe")
 			run.pipe:splice(pos, 1)
-			run.pos = pos
+			run.pos = pos - 1
 		end
 		return run.input
 	end
@@ -247,7 +247,7 @@ function M.lattice_resolver(run)
 		if not keep then
 			run:own("pipe")
 			run.pipe:splice(pos, 1)
-			run.pos = pos
+			run.pos = pos - 1
 		end
 		return run.input
 	end
@@ -261,12 +261,14 @@ function M.lattice_resolver(run)
 
 	if keep then
 		-- insert after self, keep self in pipe
+		-- after execute()'s pos++, we land on pos+1 which is the first inserted segment
 		run.pipe:splice(pos + 1, 0, unpack(name_list))
 	else
 		-- replace self with resolved segment
+		-- set pos so that after execute()'s pos++ we land on the first spliced segment
 		run.pipe:splice(pos, 1, unpack(name_list))
+		run.pos = pos - 1
 	end
-	run.pos = pos
 
 	return run.input
 end
