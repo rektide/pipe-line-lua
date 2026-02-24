@@ -111,8 +111,11 @@ describe("termichatter integration", function()
 			local modA = module:new({ source = "A" })
 			local modB = module:new({ source = "B" })
 			local modC = module:new({ source = "C" })
+			modA.output = module.outputQueue
 			modA.outputQueue = module.outputQueue
+			modB.output = module.outputQueue
 			modB.outputQueue = module.outputQueue
+			modC.output = module.outputQueue
 			modC.outputQueue = module.outputQueue
 
 			for _ = 1, 3 do
