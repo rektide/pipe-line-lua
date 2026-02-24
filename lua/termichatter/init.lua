@@ -184,14 +184,16 @@ function M.makePipeline(config)
 		})
 
 		for name, level in pairs(M.priority) do
-			logger[name] = function(loggerSelf, msg)
-				if type(msg) == "string" then
-					msg = { message = msg }
+			if name ~= "log" then
+				logger[name] = function(loggerSelf, msg)
+					if type(msg) == "string" then
+						msg = { message = msg }
+					end
+					msg = msg or {}
+					msg.priority = name
+					msg.priorityLevel = level
+					return loggerSelf:log(msg)
 				end
-				msg = msg or {}
-				msg.priority = name
-				msg.priorityLevel = level
-				return loggerSelf:log(msg)
 			end
 		end
 
