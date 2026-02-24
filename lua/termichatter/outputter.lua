@@ -30,7 +30,13 @@ function M.buffer(config)
 				end
 			end
 			local line = format(msg)
-			local line_array = type(line) == "table" and line or { line }
+			local line_array = {}
+			local lines = type(line) == "table" and line or { line }
+			for _, l in ipairs(lines) do
+				for s in tostring(l):gmatch("[^\n]+") do
+					table.insert(line_array, s)
+				end
+			end
 			vim.schedule(function()
 				vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, line_array)
 			end)
