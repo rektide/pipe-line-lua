@@ -237,7 +237,7 @@ function M.lattice_resolver(run)
 
 	-- 4. find provider segment
 	if not emits_index then
-		emits_index = M.build_emits_index(registry)
+		emits_index = registry.emits_index or M.build_emits_index(registry)
 	end
 	local candidate = find_provider_indexed(unsatisfied_set, emits_index)
 
@@ -311,7 +311,7 @@ function M.resolve_line(target_line, opt)
 	end
 
 	local pipe = target_line.pipe
-	local emits_index = opt.emits_index or M.build_emits_index(registry)
+	local emits_index = opt.emits_index or registry.emits_index or M.build_emits_index(registry)
 
 	-- find the resolver position (if present), or analyze the full pipe
 	local resolver_pos = nil

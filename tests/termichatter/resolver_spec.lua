@@ -2,7 +2,7 @@
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 describe("termichatter.resolver", function()
-	local resolver, registry, Pipe, line, Run
+	local resolver, registry, Pipe, Line, Run
 
 	before_each(function()
 		package.loaded["termichatter.resolver"] = nil
@@ -13,7 +13,7 @@ describe("termichatter.resolver", function()
 		resolver = require("termichatter.resolver")
 		registry = require("termichatter.registry")
 		Pipe = require("termichatter.pipe")
-		line = require("termichatter.line")
+		Line = require("termichatter.line")
 		Run = require("termichatter.run")
 		registry:register("lattice_resolver", {
 			wants = {},
@@ -24,15 +24,9 @@ describe("termichatter.resolver", function()
 
 	local function make_line(segment_list, extra)
 		extra = extra or {}
-		local l = line:clone({
-			pipe = Pipe.new(segment_list),
-			registry = registry,
-			output = MpscQueue.new(),
-		})
-		for k, v in pairs(extra) do
-			l[k] = v
-		end
-		return l
+		extra.pipe = segment_list
+		extra.registry = registry
+		return Line(extra)
 	end
 
 	describe("kahn_sort", function()

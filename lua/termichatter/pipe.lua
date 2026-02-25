@@ -55,4 +55,10 @@ function M.new(entry)
 	return p
 end
 
+setmetatable(M, {
+	__call = function(_, entry)
+		return M.new(entry)
+	end,
+})
+
 return M

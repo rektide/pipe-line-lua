@@ -6,6 +6,7 @@ local M = {}
 
 M.type = "registry"
 M.segment = {}
+M.emits_index = {}
 
 --- Resolve a segment by name from this registry
 ---@param name string|function|table Segment identifier
@@ -37,10 +38,27 @@ function M:resolve(name)
 end
 
 --- Register a segment in this registry
+--- Incrementally updates the emits index if the segment has emits metadata
 ---@param name string Segment name
 ---@param handler function|table The segment handler
 function M:register(name, handler)
 	self.segment[name] = handler
+
+	-- incrementally update emits_index
+	if type(handler) == "table" and handler.emits then
+		local entry = {
+			name = name,
+			wants = handler.wants or {},
+			emits = handler.emits,
+			handler = handler,
+		}
+		for _, e in ipairs(handler.emits) do
+			if not self.emits_index[e] then
+				self.emits_index[e] = {}
+			end
+			table.insert(self.emits_index[e], entry)
+		end
+	end
 end
 
 --- Create a child registry inheriting from this one
@@ -50,6 +68,7 @@ function M:derive(config)
 	local child = inherit.derive(self, {
 		type = "registry",
 		segment = {},
+		emits_index = {},
 	})
 	if config then
 		for k, v in pairs(config) do
@@ -58,5 +77,11 @@ function M:derive(config)
 	end
 	return child
 end
+
+setmetatable(M, {
+	__call = function(_, config)
+		return M:derive(config)
+	end,
+})
 
 return M

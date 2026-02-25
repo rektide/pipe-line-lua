@@ -2,7 +2,7 @@
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 describe("termichatter.run", function()
-	local Run, Pipe, registry, line
+	local Run, Pipe, registry, Line
 
 	before_each(function()
 		package.loaded["termichatter.run"] = nil
@@ -12,20 +12,14 @@ describe("termichatter.run", function()
 		Run = require("termichatter.run")
 		Pipe = require("termichatter.pipe")
 		registry = require("termichatter.registry")
-		line = require("termichatter.line")
+		Line = require("termichatter.line")
 	end)
 
 	local function make_line(segment_list, extra)
 		extra = extra or {}
-		local l = line:clone({
-			pipe = Pipe.new(segment_list),
-			registry = registry,
-			output = MpscQueue.new(),
-		})
-		for k, v in pairs(extra) do
-			l[k] = v
-		end
-		return l
+		extra.pipe = segment_list
+		extra.registry = registry
+		return Line(extra)
 	end
 
 	describe("methods via metatable", function()

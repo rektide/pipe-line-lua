@@ -288,4 +288,10 @@ function Run.new(line, config)
 	return run
 end
 
+setmetatable(Run, {
+	__call = function(_, line, config)
+		return Run.new(line, config)
+	end,
+})
+
 return Run

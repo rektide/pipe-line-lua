@@ -1,32 +1,34 @@
 --- termichatter: structured data-flow pipeline
---- line/pipe/segment/run/registry architecture
-local M = {}
-
-local inherit = require("termichatter.inherit")
+--- Thin entry point: registers built-in segment, exports modules
+local Line = require("termichatter.line")
 local Pipe = require("termichatter.pipe")
-local registry = require("termichatter.registry")
-local line = require("termichatter.line")
 local Run = require("termichatter.run")
+local registry = require("termichatter.registry")
 local segment = require("termichatter.segment")
 local consumer = require("termichatter.consumer")
 local outputter = require("termichatter.outputter")
 local driver = require("termichatter.driver")
 local protocol = require("termichatter.protocol")
 local resolver = require("termichatter.resolver")
-local MpscQueue = require("coop.mpsc-queue").MpscQueue
+local inherit = require("termichatter.inherit")
 
-M.inherit = inherit
+local M = {}
+
+-- Export modules
+M.Line = Line
 M.Pipe = Pipe
-M.registry = registry
-M.line = line
 M.Run = Run
+M.registry = registry
 M.segment = segment
 M.consumer = consumer
 M.outputter = outputter
 M.driver = driver
+M.drivers = driver
 M.protocol = protocol
 M.completion = protocol
 M.resolver = resolver
+M.inherit = inherit
+M.priority = Line.priority
 
 -- Register built-in segment
 registry:register("timestamper", segment.timestamper)
@@ -35,26 +37,13 @@ registry:register("cloudevents", segment.cloudevent)
 registry:register("module_filter", segment.module_filter)
 registry:register("priority_filter", segment.priority_filter)
 registry:register("ingester", segment.ingester)
-registry:register("lattice_resolver", resolver.lattice_resolver)
+registry:register("lattice_resolver", {
+	wants = {},
+	emits = {},
+	handler = resolver.lattice_resolver,
+})
 
-M.defaultSegment = {
-	"timestamper",
-	"ingester",
-	"cloudevent",
-	"module_filter",
-}
-
-M.priority = {
-	error = 1,
-	warn = 2,
-	info = 3,
-	log = 4,
-	debug = 5,
-	trace = 6,
-}
-
--- expose segment handler directly for backward compat
--- v1 calling convention: timestamper(msg) not timestamper(run)
+-- v1 compat: direct segment handler access
 M.timestamper = function(msg)
 	if type(msg) == "table" and msg.input then
 		return segment.timestamper.handler(msg)
@@ -66,13 +55,11 @@ M.timestamper = function(msg)
 	end
 	return msg
 end
+
 M.cloudevents = function(msg, ctx)
-	-- v1 compat: segment receives (msg, ctx), but new segment receives (run)
-	-- wrap to support both calling convention
 	if type(msg) == "table" and msg.type == "run" then
-		return segment.cloudevent(msg)
+		return segment.cloudevent.handler(msg)
 	end
-	-- old calling convention: (msg, ctx)
 	local input = msg
 	if type(input) ~= "table" then
 		return input
@@ -96,9 +83,8 @@ end
 
 M.module_filter = function(msg, ctx)
 	if type(msg) == "table" and msg.type == "run" then
-		return segment.module_filter(msg)
+		return segment.module_filter.handler(msg)
 	end
-	-- old calling convention
 	local filter = ctx and ctx.filter
 	if not filter then
 		return msg
@@ -132,134 +118,7 @@ M.uuid = function()
 	)
 end
 
---- Create a new line (pipeline) with optional config
----@param config? table { pipe?: string[], source?: string, ... }
----@return table pipeline The new line with logging method
-function M.makePipeline(config)
-	config = config or {}
-
-	local newLine = line:clone({
-		pipe = Pipe.new(config.pipe or M.defaultSegment),
-		registry = registry,
-		output = MpscQueue.new(),
-	})
-
-	for k, v in pairs(config) do
-		if k ~= "pipe" then
-			newLine[k] = v
-		end
-	end
-
-	newLine.outputQueue = newLine.output
-
-	function newLine:log(msg)
-		if type(msg) == "string" then
-			msg = { message = msg }
-		end
-		msg = msg or {}
-		msg.source = msg.source or self.source
-		return self:run({ input = msg })
-	end
-
-	function newLine:baseLogger(logConfig)
-		logConfig = logConfig or {}
-
-		local logger = inherit.derive(self, {
-			type = "logger",
-		})
-
-		for k, v in pairs(logConfig) do
-			logger[k] = v
-		end
-
-		if logConfig.module and self.source then
-			logger.source = self.source .. ":" .. logConfig.module
-		end
-
-		setmetatable(logger, {
-			__index = self,
-			__call = function(t, msg)
-				return t:log(msg)
-			end,
-		})
-
-		for name, level in pairs(M.priority) do
-			if name ~= "log" then
-				logger[name] = function(loggerSelf, msg)
-					if type(msg) == "string" then
-						msg = { message = msg }
-					end
-					msg = msg or {}
-					msg.priority = name
-					msg.priorityLevel = level
-					return loggerSelf:log(msg)
-				end
-			end
-		end
-
-		return logger
-	end
-
-	function newLine:makePipeline(subConfig)
-		local child = M.makePipeline(subConfig)
-		setmetatable(child, { __index = self })
-		return child
-	end
-
-	-- v1 compat: :new() delegates to makePipeline
-	function newLine:new(...)
-		local configs = { ... }
-		local merged = {}
-		for _, cfg in ipairs(configs) do
-			if type(cfg) == "table" then
-				for k, v in pairs(cfg) do
-					merged[k] = v
-				end
-			end
-		end
-		local child = M.makePipeline(merged)
-		setmetatable(child, { __index = self })
-		return child
-	end
-
-	-- v1 compat: addProcessor
-	function newLine:addProcessor(name, handler, pos, withQueue)
-		rawset(self, name, handler)
-		pos = pos or (#self.pipe + 1)
-		self.pipe:splice(pos, 0, name)
-		if withQueue then
-			self:ensure_mpsc(pos)
-		end
-	end
-
-	-- v1 compat: priority method directly on line
-	-- skip "log" to avoid overwriting the pipeline :log method
-	for name, level in pairs(M.priority) do
-		if name == "log" then goto skip_priority end
-		newLine[name] = function(self, msg)
-			if type(msg) == "string" then
-				msg = { message = msg }
-			end
-			msg = msg or {}
-			msg.priority = name
-			msg.priorityLevel = level
-			return self:log(msg)
-		end
-		::skip_priority::
-	end
-
-	function newLine:startConsumer()
-		return consumer.start_consumer(self)
-	end
-
-	function newLine:stopConsumer()
-		consumer.stop_consumer(self)
-	end
-
-	return newLine
-end
-
--- v1 compat: M:new() creates a pipeline
+--- v1 compat: termichatter:new(...) creates a Line
 function M:new(...)
 	local configs = { ... }
 	local merged = {}
@@ -270,12 +129,24 @@ function M:new(...)
 			end
 		end
 	end
-	return M.makePipeline(merged)
+	merged.registry = merged.registry or registry
+	return Line(merged)
 end
 
--- expose drivers at top level
-M.drivers = driver
+--- v1 compat: makePipeline delegates to Line()
+function M.makePipeline(config)
+	config = config or {}
+	config.registry = config.registry or registry
+	return Line(config)
+end
 
-setmetatable(M, { __index = line })
+-- Module is callable: termichatter(config) creates a Line
+setmetatable(M, {
+	__call = function(_, config)
+		config = config or {}
+		config.registry = config.registry or registry
+		return Line(config)
+	end,
+})
 
 return M
