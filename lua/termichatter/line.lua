@@ -144,22 +144,6 @@ function Line:baseLogger(config)
 	return logger
 end
 
---- v1 compat: :new(...) creates a child line
----@vararg table Config tables to merge
----@return table line New child Line
-function Line:new(...)
-	local configs = { ... }
-	local merged = {}
-	for _, cfg in ipairs(configs) do
-		if type(cfg) == "table" then
-			for k, v in pairs(cfg) do
-				merged[k] = v
-			end
-		end
-	end
-	return self:derive(merged)
-end
-
 --- Add a processor segment to the pipeline
 ---@param name string Segment name
 ---@param handler function|table The segment handler
@@ -220,8 +204,6 @@ local function new_line(config)
 	else
 		instance.output = MpscQueue.new()
 	end
-	instance.outputQueue = instance.output
-
 	-- apply remaining config
 	for k, v in pairs(config) do
 		instance[k] = v

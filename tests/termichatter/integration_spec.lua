@@ -26,22 +26,22 @@ describe("termichatter integration", function()
 		it("logs messages to a buffer", function()
 			local bufnr = vim.api.nvim_create_buf(false, true)
 
-			local module = termichatter:new({ source = "test:app" })
+			local app = termichatter({ source = "test:app" })
 
 			local bufOut = outputter.buffer({
 				n = bufnr,
-				queue = module.outputQueue,
+				queue = app.output,
 			})
 
 			local outTask = coop.spawn(function()
 				bufOut:start()
 			end)
 
-			module:info("Starting up")
-			module:debug("Debug info here")
-			module:error("Something went wrong")
+			app:info("Starting up")
+			app:debug("Debug info here")
+			app:error("Something went wrong")
 
-			module.outputQueue:push(termichatter.completion.done)
+			app.output:push(termichatter.protocol.done)
 
 			outTask:await(200, 10)
 
@@ -65,12 +65,12 @@ describe("termichatter integration", function()
 		it("child logger inherit parent context", function()
 			local captured = {}
 
-			local root = termichatter:new({
+			local root = termichatter({
 				source = "myapp",
 				environment = "production",
 			})
 
-			local authModule = root:new({
+			local authModule = root:derive({
 				source = "myapp:auth",
 				component = "authentication",
 			})
@@ -95,12 +95,12 @@ describe("termichatter integration", function()
 
 	describe("multiple producers single consumer", function()
 		it("handles concurrent logging from multiple logger", function()
-			local module = termichatter:new()
+			local app = termichatter()
 			local received = {}
 
 			local consumerTask = coop.spawn(function()
 				for _ = 1, 10 do
-					local msg = module.outputQueue:pop()
+					local msg = app.output:pop()
 					if msg.type == "termichatter.completion.done" then
 						break
 					end
@@ -108,15 +108,9 @@ describe("termichatter integration", function()
 				end
 			end)
 
-			local modA = module:new({ source = "A" })
-			local modB = module:new({ source = "B" })
-			local modC = module:new({ source = "C" })
-			modA.output = module.outputQueue
-			modA.outputQueue = module.outputQueue
-			modB.output = module.outputQueue
-			modB.outputQueue = module.outputQueue
-			modC.output = module.outputQueue
-			modC.outputQueue = module.outputQueue
+			local modA = app:derive({ source = "A", output = app.output })
+			local modB = app:derive({ source = "B", output = app.output })
+			local modC = app:derive({ source = "C", output = app.output })
 
 			for _ = 1, 3 do
 				modA:info("from A")
@@ -124,7 +118,7 @@ describe("termichatter integration", function()
 				modC:info("from C")
 			end
 
-			module.outputQueue:push(termichatter.completion.done)
+			app.output:push(termichatter.protocol.done)
 
 			consumerTask:await(300, 10)
 
@@ -212,14 +206,14 @@ describe("termichatter integration", function()
 			})
 
 			local Pipe = require("termichatter.pipe")
-			local module = termichatter:new()
-			module.pipe = Pipe.new({ "timestamper", "lattice_resolver", "final_output" })
+			local app = termichatter()
+			app.pipe = Pipe({ "timestamper", "lattice_resolver", "final_output" })
 
-			module:log({ message = "resolve me" })
+			app:log({ message = "resolve me" })
 
 			local received = nil
 			local task = coop.spawn(function()
-				received = module.outputQueue:pop()
+				received = app.output:pop()
 			end)
 			task:await(100, 10)
 

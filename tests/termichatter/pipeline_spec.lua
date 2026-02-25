@@ -21,14 +21,14 @@ describe("termichatter.pipeline", function()
 
 	describe("queue-based pipeline", function()
 		it("pushes to output queue", function()
-			local module = termichatter:new()
-			module.pipe = require("termichatter.pipe").new({ "timestamper", "cloudevent" })
+			local app = termichatter()
+			app.pipe = require("termichatter.pipe").new({ "timestamper", "cloudevent" })
 
-			module:log({ message = "test" })
+			app:log({ message = "test" })
 
 			local received = nil
 			local task = coop.spawn(function()
-				received = module.outputQueue:pop()
+				received = app.output:pop()
 			end)
 			task:await(100, 10)
 
@@ -37,17 +37,17 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("processes multiple messages in order", function()
-			local module = termichatter:new()
-			module.pipe = require("termichatter.pipe").new({ "timestamper" })
+			local app = termichatter()
+			app.pipe = require("termichatter.pipe").new({ "timestamper" })
 
-			module:log({ message = "first" })
-			module:log({ message = "second" })
-			module:log({ message = "third" })
+			app:log({ message = "first" })
+			app:log({ message = "second" })
+			app:log({ message = "third" })
 
 			local messages = {}
 			local task = coop.spawn(function()
 				for _ = 1, 3 do
-					local msg = module.outputQueue:pop()
+					local msg = app.output:pop()
 					table.insert(messages, msg.message)
 				end
 			end)
@@ -57,23 +57,23 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("supports queue at pipeline step", function()
-			local module = termichatter:new()
+			local app = termichatter()
 			local stepQueue = MpscQueue.new()
 			local afterStep = {}
 
-			module.pipe = require("termichatter.pipe").new({ "timestamper", "queuedStep", "capture" })
-			module.mpsc = { [2] = stepQueue }
+			app.pipe = require("termichatter.pipe").new({ "timestamper", "queuedStep", "capture" })
+			app.mpsc = { [2] = stepQueue }
 
-			module.queuedStep = function(run)
+			app.queuedStep = function(run)
 				table.insert(afterStep, "queued")
 				return run.input
 			end
-			module.capture = function(run)
+			app.capture = function(run)
 				table.insert(afterStep, "captured")
 				return run.input
 			end
 
-			module:log({ message = "test" })
+			app:log({ message = "test" })
 
 			-- message is in queue, not processed yet
 			assert.are.same({}, afterStep)
@@ -83,7 +83,7 @@ describe("termichatter.pipeline", function()
 			local Run = require("termichatter.run")
 			local consumer_task = coop.spawn(function()
 				local msg = stepQueue:pop()
-				local run = Run.new(module, {
+				local run = Run(app, {
 					noStart = true,
 					input = msg,
 				})
@@ -101,13 +101,13 @@ describe("termichatter.pipeline", function()
 	end)
 
 	describe("recursive context", function()
-		it("child module inherits from parent", function()
-			local parent = termichatter:new({
+		it("child line inherits from parent", function()
+			local parent = termichatter({
 				source = "parent:app",
 				customSetting = "inherited",
 			})
 
-			local child = parent:new({
+			local child = parent:derive({
 				source = "parent:app:child",
 			})
 
@@ -116,11 +116,11 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("child can override parent settings", function()
-			local parent = termichatter:new({
+			local parent = termichatter({
 				filter = "parent.*",
 			})
 
-			local child = parent:new({
+			local child = parent:derive({
 				filter = "child.*",
 			})
 
@@ -128,8 +128,8 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("child has independent pipeline", function()
-			local parent = termichatter:new()
-			local child = parent:new({})
+			local parent = termichatter()
+			local child = parent:derive({})
 
 			child:addProcessor("childOnly", function(run)
 				return run.input
@@ -140,16 +140,15 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("log methods inherit module context", function()
-			local module = termichatter:new({ source = "app:main" })
-			module.module = "submodule"
+			local app = termichatter({ source = "app:main" })
 			local captured = nil
 
-			module:addProcessor("capture", function(run)
+			app:addProcessor("capture", function(run)
 				captured = run.input
 				return run.input
 			end)
 
-			module:info("test message")
+			app:info("test message")
 
 			assert.are.equal("app:main", captured.source)
 		end)
@@ -157,17 +156,17 @@ describe("termichatter.pipeline", function()
 
 	describe("multiple producers", function()
 		it("handles concurrent logging", function()
-			local module = termichatter:new()
-			module.pipe = require("termichatter.pipe").new({ "timestamper" })
+			local app = termichatter()
+			app.pipe = require("termichatter.pipe").new({ "timestamper" })
 
 			for i = 1, 5 do
-				module:log({ producer = i })
+				app:log({ producer = i })
 			end
 
 			local received = {}
 			local task = coop.spawn(function()
 				for _ = 1, 5 do
-					local msg = module.outputQueue:pop()
+					local msg = app.output:pop()
 					table.insert(received, msg.producer)
 				end
 			end)
