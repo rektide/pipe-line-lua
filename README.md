@@ -142,6 +142,7 @@ local r = Run(line, { input = { message = "hello" }, noStart = true })
 r:execute()    -- walk the pipe from current pos
 r:next()       -- advance and continue
 r:emit(el)     -- clone + next convenience for fan-out
+r:emit(el, "fork") -- optional strategy: self|clone|fork
 r:clone(el)    -- lightweight copy for fan-out
 r:fork(el)     -- fully independent copy
 r:own("pipe")  -- take ownership, breaking line read-through
@@ -152,7 +153,7 @@ r:sync()       -- sync pos with line's pipe after splice
 
 #### Fan-Out
 
-A segment can emit multiple element by cloning the run:
+A segment can emit multiple element by cloning the run (default strategy), or choose `self`/`fork` when needed:
 
 ```lua
 registry:register("splitter", function(run)

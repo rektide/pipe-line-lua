@@ -136,11 +136,12 @@ function Run:next(element)
 end
 
 --- Emit a new element by cloning this run and advancing it.
---- Convenience for fan-out: run:clone(element):next().
+--- Convenience for fan-out with optional strategy.
 ---@param element any Element to emit downstream
+---@param strategy? 'self'|'clone'|'fork' Continuation strategy (default: clone)
 ---@return table run The emitted child run
-function Run:emit(element)
-	local child = self:clone(element)
+function Run:emit(element, strategy)
+	local child = util.continuation_for_strategy(self, strategy or "clone", element, "emit")
 	child:next()
 	return child
 end

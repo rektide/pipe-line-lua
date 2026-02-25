@@ -2,21 +2,9 @@
 --- Common processing segment for pipeline
 local M = {}
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
+local util = require("termichatter.util")
 
 M.HANDOFF_FIELD = "__termichatter_handoff_run"
-
-local function continuation_for_strategy(run, strategy)
-	if strategy == nil or strategy == "self" then
-		return run
-	end
-	if strategy == "clone" then
-		return run:clone(run.input)
-	end
-	if strategy == "fork" then
-		return run:fork(run.input)
-	end
-	error("invalid mpsc_handoff strategy: " .. tostring(strategy), 0)
-end
 
 function M.mpsc_handoff_factory()
 	return {
@@ -165,7 +153,7 @@ function M.mpsc_handoff(config)
 	}
 
 	handoff.handler = function(run)
-		local continuation = continuation_for_strategy(run, handoff.strategy)
+		local continuation = util.continuation_for_strategy(run, handoff.strategy, run.input, "mpsc_handoff")
 		queue:push({ [M.HANDOFF_FIELD] = continuation })
 		return false
 	end

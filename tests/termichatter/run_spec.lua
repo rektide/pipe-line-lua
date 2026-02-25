@@ -147,6 +147,48 @@ describe("termichatter.run", function()
 			assert.is_true(child.input.emitted)
 			assert.are.equal(1, r.pos)
 		end)
+
+		it("supports self strategy to continue on current run", function()
+			local results = {}
+			registry:register("anchor", { handler = function(run) return run.input end })
+			registry:register("collector", { handler = function(run)
+				table.insert(results, run.input)
+				return run.input
+			end })
+
+			local l = make_line({ "anchor", "collector" })
+			local r = Run.new(l, { noStart = true, input = { source = true } })
+			r.pos = 1
+
+			local continued = r:emit({ self_emit = true }, "self")
+
+			assert.are.equal(r, continued)
+			assert.are.equal(1, #results)
+			assert.is_true(results[1].self_emit)
+			assert.are.equal(3, r.pos)
+		end)
+
+		it("supports fork strategy for independent continuation", function()
+			local results = {}
+			registry:register("anchor", { handler = function(run) return run.input end })
+			registry:register("collector", { handler = function(run)
+				table.insert(results, run.input)
+				return run.input
+			end })
+
+			local l = make_line({ "anchor", "collector" })
+			local r = Run.new(l, { noStart = true, input = { source = true } })
+			r.pos = 1
+
+			local child = r:emit({ fork_emit = true }, "fork")
+
+			assert.are_not.equal(r, child)
+			assert.are_not.equal(r.pipe, child.pipe)
+			assert.is_not_nil(rawget(child, "fact"))
+			assert.are.equal(1, #results)
+			assert.is_true(results[1].fork_emit)
+			assert.are.equal(1, r.pos)
+		end)
 	end)
 
 	describe("set_fact", function()
