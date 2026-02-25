@@ -75,7 +75,7 @@ describe("termichatter integration", function()
 				component = "authentication",
 			})
 
-			authModule:addProcessor("capture", function(run)
+			authModule:addSegment("capture", function(run)
 				table.insert(captured, run.input)
 				return run.input
 			end)

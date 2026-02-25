@@ -56,10 +56,10 @@ describe("termichatter", function()
 			local app = termichatter()
 			local reached = false
 
-			app:addProcessor("blocker", function()
+			app:addSegment("blocker", function()
 				return false
 			end)
-			app:addProcessor("after", function(run)
+			app:addSegment("after", function(run)
 				reached = true
 				return run.input
 			end)
@@ -91,12 +91,12 @@ describe("termichatter", function()
 		end)
 	end)
 
-	describe("addProcessor", function()
+	describe("addSegment", function()
 		it("adds handler to pipeline", function()
 			local app = termichatter()
 			local originalLen = #app.pipe
 
-			app:addProcessor("myHandler", function(run)
+			app:addSegment("myHandler", function(run)
 				return run.input
 			end)
 
@@ -105,7 +105,7 @@ describe("termichatter", function()
 
 		it("inserts at specified position", function()
 			local app = termichatter()
-			app:addProcessor("first", function() end, 1)
+			app:addSegment("first", function() end, 1)
 			assert.are.equal("first", app.pipe[1])
 		end)
 	end)
@@ -124,7 +124,7 @@ describe("termichatter", function()
 			local app = termichatter({ source = "test" })
 			local captured = nil
 
-			app:addProcessor("capture", function(run)
+			app:addSegment("capture", function(run)
 				captured = run.input
 				return run.input
 			end)
@@ -140,7 +140,7 @@ describe("termichatter", function()
 			local app = termichatter()
 			local captured = nil
 
-			app:addProcessor("capture", function(run)
+			app:addSegment("capture", function(run)
 				captured = run.input
 				return run.input
 			end)

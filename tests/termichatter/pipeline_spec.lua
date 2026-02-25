@@ -1,6 +1,5 @@
 --- Busted tests for termichatter pipeline (line/run integration)
 local coop = require("coop")
-local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 describe("termichatter.pipeline", function()
 	local termichatter
@@ -60,11 +59,9 @@ describe("termichatter.pipeline", function()
 
 		it("supports queue at pipeline step", function()
 			local app = termichatter()
-			local stepQueue = MpscQueue.new()
 			local afterStep = {}
-			local handoff = termichatter.segment.mpsc_handoff({ queue = stepQueue })
 
-			app.pipe = require("termichatter.pipe").new({ "timestamper", handoff, "queuedStep", "capture" })
+			app.pipe = require("termichatter.pipe").new({ "timestamper", "mpsc_handoff", "queuedStep", "capture" })
 
 			app.queuedStep = function(run)
 				table.insert(afterStep, "queued")
@@ -75,22 +72,11 @@ describe("termichatter.pipeline", function()
 				return run.input
 			end
 
-			local Run = require("termichatter.run")
-			local run = Run.new(app, { noStart = true, input = { message = "test" } })
-			run:execute()
-
-			-- message is in queue, not processed yet
-			assert.are.same({}, afterStep)
-			assert.is_false(stepQueue:empty())
-
-			-- consume continuation payload and continue
-			local consumer_task = coop.spawn(function()
-				local msg = stepQueue:pop()
-				local continuation = msg[termichatter.segment.HANDOFF_FIELD]
-				continuation:next()
-			end)
-
-			consumer_task:await(100, 10)
+			app:log({ message = "test" })
+			local out = coop.spawn(function()
+				return app.output:pop()
+			end):await(200, 10)
+			assert.are.equal("test", out.message)
 			assert.are.same({ "queued", "captured" }, afterStep)
 		end)
 
@@ -98,7 +84,7 @@ describe("termichatter.pipeline", function()
 			local app = termichatter()
 			local captured = nil
 
-			app:addProcessor("capture", function(run)
+			app:addSegment("capture", function(run)
 				captured = run.input
 				return run.input
 			end)
@@ -117,8 +103,7 @@ describe("termichatter.pipeline", function()
 		it("materializes distinct queues for repeated named mpsc_handoff entries", function()
 			local app = termichatter()
 			app.pipe = require("termichatter.pipe").new({ "mpsc_handoff", "mpsc_handoff" })
-
-			app:startConsumer()
+			app:log({ message = "materialize" })
 
 			assert.are.equal("mpsc_handoff", app.pipe[1].type)
 			assert.are.equal("mpsc_handoff", app.pipe[2].type)
@@ -157,7 +142,7 @@ describe("termichatter.pipeline", function()
 			local parent = termichatter()
 			local child = parent:derive({})
 
-			child:addProcessor("childOnly", function(run)
+			child:addSegment("childOnly", function(run)
 				return run.input
 			end)
 
@@ -169,7 +154,7 @@ describe("termichatter.pipeline", function()
 			local app = termichatter({ source = "app:main" })
 			local captured = nil
 
-			app:addProcessor("capture", function(run)
+			app:addSegment("capture", function(run)
 				captured = run.input
 				return run.input
 			end)

@@ -332,6 +332,22 @@ describe("termichatter.run", function()
 			r:sync()
 			assert.are.equal(6, r.pos)
 		end)
+
+		it("clone syncs against inherited owned pipe", function()
+			local l = make_line({ "a", "b", "c" })
+			local r = Run.new(l, { noStart = true, input = {} })
+			r.pos = 3
+			r:own("pipe")
+
+			local c = r:clone({})
+			c.pos = 3
+
+			r.pipe:splice(2, 0, "x", "y")
+			-- owned pipe: a, x, y, b, c ; clone cursor should move from 3 -> 5
+
+			c:sync()
+			assert.are.equal(5, c.pos)
+		end)
 	end)
 
 	describe("fan-out with clone + next", function()

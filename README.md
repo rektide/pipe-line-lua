@@ -246,6 +246,12 @@ app:info("async message")
 
 -- Optional cleanup when shutting down
 app:stopConsumer()
+
+-- Advanced control: disable auto-start and start later
+local delayed = termichatter({ autoStartConsumers = false })
+delayed.pipe = require("termichatter.pipe")({ "mpsc_handoff", "cloudevent" })
+delayed:info("queued, not yet consumed")
+delayed:startConsumer() -- begin draining handoff queues
 ```
 
 ## Output

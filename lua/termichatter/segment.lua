@@ -18,14 +18,6 @@ local function continuation_for_strategy(run, strategy)
 	error("invalid mpsc_handoff strategy: " .. tostring(strategy), 0)
 end
 
----@param seg any
----@return boolean
-function M.is_factory(seg)
-	return type(seg) == "table"
-		and seg.type == "segment_factory"
-		and type(seg.create) == "function"
-end
-
 function M.mpsc_handoff_factory()
 	return {
 		type = "segment_factory",

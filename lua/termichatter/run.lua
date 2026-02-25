@@ -3,7 +3,7 @@
 --- Supports clone/fork/own for fan-out and independence
 local inherit = require("termichatter.inherit")
 local Pipe = require("termichatter.pipe")
-local segment = require("termichatter.segment")
+local util = require("termichatter.util")
 
 local Run = {}
 Run.type = "run"
@@ -53,16 +53,17 @@ end
 --- Sync position with the pipe's splice journal
 --- No-op if we own our pipe or if rev matches
 function Run:sync()
-	local own_pipe = rawget(self, "pipe")
-	if own_pipe and own_pipe ~= self.line.pipe then
+	local active_pipe = self.pipe
+	if not active_pipe then
 		return
 	end
-	local line_pipe = self.line.pipe
-	local my_rev = rawget(self, "_rev") or 0
-	if my_rev == line_pipe.rev then
+
+	local my_rev = self._rev or 0
+	if my_rev == active_pipe.rev then
 		return
 	end
-	for _, entry in ipairs(line_pipe.splice_journal) do
+
+	for _, entry in ipairs(active_pipe.splice_journal) do
 		if entry.rev > my_rev then
 			if self.pos >= entry.start + entry.deleted then
 				self.pos = self.pos - entry.deleted + entry.inserted
@@ -71,7 +72,8 @@ function Run:sync()
 			end
 		end
 	end
-	rawset(self, "_rev", line_pipe.rev)
+
+	rawset(self, "_rev", active_pipe.rev)
 end
 
 --- Execute the pipeline from current position
@@ -81,8 +83,13 @@ function Run:execute()
 	while self.pos <= #self.pipe do
 		local seg = self.pipe[self.pos]
 		if type(seg) == "string" then
-			local resolved = self:resolve(seg)
-			if segment.is_factory(resolved) then
+			local resolved
+			if self.line and type(self.line.resolve_segment) == "function" then
+				resolved = self.line:resolve_segment(seg)
+			else
+				resolved = self:resolve(seg)
+			end
+			if util.is_segment_factory(resolved) then
 				seg = resolved.create()
 				self.pipe[self.pos] = seg
 			end

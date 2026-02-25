@@ -3,6 +3,7 @@
 local coop = require("coop")
 local protocol = require("termichatter.protocol")
 local segment = require("termichatter.segment")
+local util = require("termichatter.util")
 
 local M = {}
 
@@ -51,7 +52,7 @@ end
 local function queue_for_segment(line, pos)
 	local seg = line.pipe[pos]
 	local resolved = line:resolve_segment(seg)
-	if segment.is_factory(resolved) then
+	if util.is_segment_factory(resolved) then
 		local created = resolved.create()
 		line.pipe[pos] = created
 		resolved = created

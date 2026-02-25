@@ -41,7 +41,9 @@ end
 ---@return table run The Run instance
 function Line:run(config)
 	local Run = require("termichatter.run")
-	consumer.start_consumer(self)
+	if self.autoStartConsumers ~= false then
+		consumer.start_consumer(self)
+	end
 	return Run(self, config)
 end
 
@@ -133,14 +135,45 @@ function Line:baseLogger(config)
 	return logger
 end
 
---- Add a processor segment to the pipeline
----@param name string Segment name
----@param handler function|table The segment handler
+--- Splice segment entries into the pipeline
+---@param pos number Position to splice at
+---@param delete_count number Number of entries to delete
+---@param ... any Segment entries to insert
+---@return table pipe The updated pipe
+function Line:spliceSegment(pos, delete_count, ...)
+	self.pipe:splice(pos, delete_count, ...)
+	return self.pipe
+end
+
+--- Add a segment to the pipeline
+--- Common forms:
+---   addSegment("name", handler, pos?) -- define on line and insert by name
+---   addSegment(segmentRef, pos?)       -- insert string/function/table segment ref
+---@param segment any Segment reference or segment name
+---@param handler_or_pos? any Handler table/function or insertion position
 ---@param pos? number Position to insert (default: end)
-function Line:addProcessor(name, handler, pos)
-	rawset(self, name, handler)
-	pos = pos or (#self.pipe + 1)
-	self.pipe:splice(pos, 0, name)
+---@return any inserted The inserted segment reference
+function Line:addSegment(segment, handler_or_pos, pos)
+	local inserted = segment
+	local insert_pos
+
+	if type(segment) == "string"
+		and (type(handler_or_pos) == "function" or type(handler_or_pos) == "table")
+		and pos == nil then
+		rawset(self, segment, handler_or_pos)
+		insert_pos = #self.pipe + 1
+	elseif type(segment) == "string"
+		and (type(handler_or_pos) == "function" or type(handler_or_pos) == "table")
+		and type(pos) == "number" then
+		rawset(self, segment, handler_or_pos)
+		insert_pos = pos
+	else
+		insert_pos = handler_or_pos
+	end
+
+	insert_pos = insert_pos or (#self.pipe + 1)
+	self:spliceSegment(insert_pos, 0, inserted)
+	return inserted
 end
 
 --- Add an explicit async queue boundary segment

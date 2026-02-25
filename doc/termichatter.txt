@@ -79,15 +79,17 @@ Example: >lua
     }, root)  -- inherits from root
 <
 
-                                                  *termichatter.addProcessor()*
-module:addProcessor({name}, {handler}, {position}, {withQueue})
-    Add a processor to the module's pipeline.
-    
-    Parameters: ~
-        {name}      String name for the handler
-        {handler}   Function to process messages
-        {position}  Optional position in pipeline (default: end)
-        {withQueue} Optional boolean to create queue at this position
+                                                    *termichatter.addSegment()*
+module:addSegment({segment}, {handler_or_position}, {position})
+    Add a segment to the module's pipeline.
+
+    Common forms: ~
+        module:addSegment({name}, {handler}, {position})
+        module:addSegment({segment_ref}, {position})
+
+                                                  *termichatter.spliceSegment()*
+module:spliceSegment({position}, {delete_count}, ...)
+    Splice segment entries directly into the pipeline.
 
 ==============================================================================
 4. PIPELINE                                          *termichatter-pipeline*
