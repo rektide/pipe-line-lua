@@ -33,7 +33,6 @@ All 89 tests now pass (0 failures).
 
 ### Architecture
 
-- **`makePipeline` is a monolith** — the function defines `:log`, `:baseLogger`, `:new`, `:addProcessor`, priority methods, `:startConsumer`, `:stopConsumer` all as closures. This makes each pipeline heavy and prevents overriding individual methods. Consider moving these to a prototype table that lines inherit from.
 - **`output` vs `outputQueue` duality** — the run system uses `output`, v1 compat uses `outputQueue`. Both are set in `makePipeline` but they can drift if user code sets one but not the other (as the multiple-producers test demonstrated). Consider making `outputQueue` a getter that returns `self.output`, or dropping the alias.
 - **Silent segment resolution failure** — when a segment name can't be resolved (typo, missing registration), `execute()` silently skips it. This caused the resolver test failures to be invisible. Consider a warning or configurable strict mode.
 

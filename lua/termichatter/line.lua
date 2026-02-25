@@ -7,6 +7,8 @@ local segment = require("termichatter.segment")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 local Line = {}
+local Logger = {}
+local LOGGER_MT = {}
 
 Line.priority = {
 	error = 1,
@@ -23,6 +25,41 @@ Line.defaultSegment = {
 	"cloudevent",
 	"module_filter",
 }
+
+local function with_priority(msg, name, level)
+	if type(msg) == "string" then
+		msg = { message = msg }
+	end
+	msg = msg or {}
+	msg.priority = name
+	msg.priorityLevel = level
+	return msg
+end
+
+for name, level in pairs(Line.priority) do
+	if name ~= "log" then
+		Line[name] = function(self, msg)
+			return self:log(with_priority(msg, name, level))
+		end
+		Logger[name] = Line[name]
+	end
+end
+
+function Logger:log(msg)
+	return Line.log(self, msg)
+end
+
+LOGGER_MT.__index = function(self, k)
+	local method = Logger[k]
+	if method ~= nil then
+		return method
+	end
+	return self.line[k]
+end
+
+LOGGER_MT.__call = function(t, msg)
+	return t:log(msg)
+end
 
 --- Send a message through the pipeline
 ---@param msg string|table Message to log
@@ -94,8 +131,6 @@ end
 ---@return table logger Logger with priority method
 function Line:baseLogger(config)
 	config = config or {}
-
-	local self_ref = self
 	local logger = {
 		type = "logger",
 		line = self,
@@ -109,28 +144,7 @@ function Line:baseLogger(config)
 		logger.source = self.source .. ":" .. config.module
 	end
 
-	setmetatable(logger, {
-		__index = function(_, k)
-			return self_ref[k]
-		end,
-		__call = function(t, msg)
-			return t:log(msg)
-		end,
-	})
-
-	for name, level in pairs(Line.priority) do
-		if name ~= "log" then
-			logger[name] = function(loggerSelf, msg)
-				if type(msg) == "string" then
-					msg = { message = msg }
-				end
-				msg = msg or {}
-				msg.priority = name
-				msg.priorityLevel = level
-				return loggerSelf:log(msg)
-			end
-		end
-	end
+	setmetatable(logger, LOGGER_MT)
 
 	return logger
 end
@@ -240,21 +254,6 @@ local function new_line(config)
 	-- registry: inherit from parent or use default
 	if not instance.registry and parent then
 		-- will fall through via __index
-	end
-
-	-- priority method on the instance
-	for name, level in pairs(Line.priority) do
-		if name ~= "log" then
-			instance[name] = function(self, msg)
-				if type(msg) == "string" then
-					msg = { message = msg }
-				end
-				msg = msg or {}
-				msg.priority = name
-				msg.priorityLevel = level
-				return self:log(msg)
-			end
-		end
 	end
 
 	-- set up metatable: methods from Line, data from parent
