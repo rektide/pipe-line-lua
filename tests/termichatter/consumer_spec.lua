@@ -104,5 +104,46 @@ describe("termichatter.consumer", function()
 			consumer.stop_consumer(l)
 			assert.are.equal(0, #l._consumer_task)
 		end)
+
+		it("is idempotent when started repeatedly", function()
+			registry:register("async_seg", { handler = function(run)
+				return run.input
+			end })
+
+			local l = make_line({ "async_seg" })
+			l:ensure_mpsc(1)
+
+			local first = consumer.start_consumer(l)
+			assert.are.equal(1, #first)
+
+			local second = consumer.start_consumer(l)
+			assert.are.equal(1, #second)
+			assert.are.equal(first[1], second[1])
+
+			consumer.stop_consumer(l)
+		end)
+
+		it("starts only newly added async stages on later calls", function()
+			registry:register("async_a", { handler = function(run)
+				return run.input
+			end })
+			registry:register("async_b", { handler = function(run)
+				return run.input
+			end })
+
+			local l = make_line({ "async_a", "async_b" })
+			l:ensure_mpsc(1)
+
+			local first = consumer.start_consumer(l)
+			assert.are.equal(1, #first)
+
+			l:ensure_mpsc(2)
+			local second = consumer.start_consumer(l)
+			assert.are.equal(2, #second)
+			assert.is_not_nil(l._consumer_task_by_pos[1])
+			assert.is_not_nil(l._consumer_task_by_pos[2])
+
+			consumer.stop_consumer(l)
+		end)
 	end)
 end)

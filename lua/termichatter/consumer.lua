@@ -5,6 +5,16 @@ local protocol = require("termichatter.protocol")
 
 local M = {}
 
+local function is_task_active(task)
+	if not task then
+		return false
+	end
+	if type(task.status) == "function" then
+		return task:status() ~= "dead"
+	end
+	return true
+end
+
 --- Create a consumer for a single mpsc stage
 ---@param line table The line with the pipeline
 ---@param pos number Position of the async stage
@@ -60,12 +70,27 @@ end
 ---@return table[] task Array of spawned task
 function M.start_consumer(line)
 	line._consumer_task = line._consumer_task or {}
+	line._consumer_task_by_pos = line._consumer_task_by_pos or {}
+
+	local active_task_list = {}
+	for pos, task in pairs(line._consumer_task_by_pos) do
+		if is_task_active(task) then
+			table.insert(active_task_list, task)
+		else
+			line._consumer_task_by_pos[pos] = nil
+		end
+	end
+	line._consumer_task = active_task_list
 
 	for pos, queue in pairs(line.mpsc or {}) do
 		if queue and type(queue.pop) == "function" then
-			local consumer_fn = M.make_consumer(line, pos, queue)
-			local task = coop.spawn(consumer_fn)
-			table.insert(line._consumer_task, task)
+			local existing_task = line._consumer_task_by_pos[pos]
+			if not is_task_active(existing_task) then
+				local consumer_fn = M.make_consumer(line, pos, queue)
+				local task = coop.spawn(consumer_fn)
+				line._consumer_task_by_pos[pos] = task
+				table.insert(line._consumer_task, task)
+			end
 		end
 	end
 
@@ -80,10 +105,13 @@ function M.stop_consumer(line)
 	end
 
 	for _, task in ipairs(line._consumer_task) do
-		task:cancel()
+		if is_task_active(task) then
+			task:cancel()
+		end
 	end
 
 	line._consumer_task = {}
+	line._consumer_task_by_pos = {}
 end
 
 return M
