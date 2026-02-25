@@ -110,7 +110,90 @@ describe("termichatter.resolver", function()
 		end)
 	end)
 
+	describe("registry:get_emits_index", function()
+		it("merges parent and child provider", function()
+			local parent = registry:derive()
+			parent:register("from_parent", {
+				wants = {},
+				emits = { "parent_fact" },
+				handler = function() end,
+			})
+
+			local child = parent:derive()
+			child:register("from_child", {
+				wants = {},
+				emits = { "child_fact" },
+				handler = function() end,
+			})
+
+			local idx = child:get_emits_index()
+			assert.is_not_nil(idx.parent_fact)
+			assert.is_not_nil(idx.child_fact)
+			assert.are.equal("from_parent", idx.parent_fact[1].name)
+			assert.are.equal("from_child", idx.child_fact[1].name)
+		end)
+
+		it("invalidates child cache when parent registers new emit", function()
+			local parent = registry:derive()
+			local child = parent:derive()
+
+			parent:register("a_provider", {
+				wants = {},
+				emits = { "a" },
+				handler = function() end,
+			})
+
+			local first = child:get_emits_index()
+			assert.is_not_nil(first.a)
+
+			parent:register("b_provider", {
+				wants = {},
+				emits = { "b" },
+				handler = function() end,
+			})
+
+			local second = child:get_emits_index()
+			assert.are_not.equal(first, second)
+			assert.is_not_nil(second.a)
+			assert.is_not_nil(second.b)
+
+			local third = child:get_emits_index()
+			assert.are.equal(second, third)
+		end)
+	end)
+
 	describe("lattice_resolver segment", function()
+		it("resolves parent providers through derived registry cache", function()
+			local parent = registry:derive()
+			parent:register("provider_parent", {
+				wants = {},
+				emits = { "enriched" },
+				handler = function(run)
+					run.input.enriched = true
+					return run.input
+				end,
+			})
+
+			local child = parent:derive()
+			child:register("consumer_child", {
+				wants = { "enriched" },
+				emits = {},
+				handler = function(run)
+					run.input.consumed = true
+					return run.input
+				end,
+			})
+
+			local l = Line({
+				pipe = { "lattice_resolver", "consumer_child" },
+				registry = child,
+			})
+			local r = Run.new(l, { input = { message = "test" } })
+
+			assert.is_true(r.input.enriched)
+			assert.is_true(r.input.consumed)
+		end)
+
 		it("splices dependency and removes self", function()
 			registry:register("enricher", {
 				wants = {},
