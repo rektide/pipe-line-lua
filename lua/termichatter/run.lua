@@ -3,6 +3,7 @@
 --- Supports clone/fork/own for fan-out and independence
 local inherit = require("termichatter.inherit")
 local Pipe = require("termichatter.pipe")
+local segment = require("termichatter.segment")
 
 local Run = {}
 Run.type = "run"
@@ -73,47 +74,19 @@ function Run:sync()
 	rawset(self, "_rev", line_pipe.rev)
 end
 
---- Check if segment at position is async (mpsc mode)
----@param pos? number Position to check (defaults to current)
----@return boolean async True if segment is async
-function Run:is_async(pos)
-	pos = pos or self.pos
-	if self.mpsc and self.mpsc[pos] then
-		return true
-	end
-	if self.line and self.line.mpsc and self.line.mpsc[pos] then
-		return true
-	end
-	return false
-end
-
---- Get the mpsc queue for a position
----@param pos? number Position (defaults to current)
----@return table|nil queue MpscQueue or nil if sync
-function Run:get_queue(pos)
-	pos = pos or self.pos
-	local own_mpsc = rawget(self, "mpsc")
-	if own_mpsc and own_mpsc[pos] then
-		return own_mpsc[pos]
-	end
-	if self.line and self.line.mpsc and self.line.mpsc[pos] then
-		return self.line.mpsc[pos]
-	end
-	return nil
-end
-
 --- Execute the pipeline from current position
 ---@return any result Final result
 function Run:execute()
 	self:sync()
 	while self.pos <= #self.pipe do
-		local queue = self:get_queue()
-		if queue then
-			queue:push(self.input)
-			return
-		end
-
 		local seg = self.pipe[self.pos]
+		if type(seg) == "string" then
+			local resolved = self:resolve(seg)
+			if segment.is_factory(resolved) then
+				seg = resolved.create()
+				self.pipe[self.pos] = seg
+			end
+		end
 		local handler = self:resolve(seg)
 		if handler then
 			local result = handler(self)

@@ -24,7 +24,9 @@ describe("termichatter.pipeline", function()
 			local app = termichatter()
 			app.pipe = require("termichatter.pipe").new({ "timestamper", "cloudevent" })
 
-			app:log({ message = "test" })
+			local Run = require("termichatter.run")
+			local run = Run.new(app, { noStart = true, input = { message = "test" } })
+			run:execute()
 
 			local received = nil
 			local task = coop.spawn(function()
@@ -60,9 +62,9 @@ describe("termichatter.pipeline", function()
 			local app = termichatter()
 			local stepQueue = MpscQueue.new()
 			local afterStep = {}
+			local handoff = termichatter.segment.mpsc_handoff({ queue = stepQueue })
 
-			app.pipe = require("termichatter.pipe").new({ "timestamper", "queuedStep", "capture" })
-			app.mpsc = { [2] = stepQueue }
+			app.pipe = require("termichatter.pipe").new({ "timestamper", handoff, "queuedStep", "capture" })
 
 			app.queuedStep = function(run)
 				table.insert(afterStep, "queued")
@@ -73,30 +75,54 @@ describe("termichatter.pipeline", function()
 				return run.input
 			end
 
-			app:log({ message = "test" })
+			local Run = require("termichatter.run")
+			local run = Run.new(app, { noStart = true, input = { message = "test" } })
+			run:execute()
 
 			-- message is in queue, not processed yet
 			assert.are.same({}, afterStep)
 			assert.is_false(stepQueue:empty())
 
-			-- consume from queue and continue
-			local Run = require("termichatter.run")
+			-- consume continuation payload and continue
 			local consumer_task = coop.spawn(function()
 				local msg = stepQueue:pop()
-				local run = Run(app, {
-					noStart = true,
-					input = msg,
-				})
-				-- execute the segment at pos 2 manually, then advance
-				run.pos = 2
-				local handler = run:resolve(run.pipe[2])
-				local result = handler(run)
-				if result ~= nil then run.input = result end
-				run:next()
+				local continuation = msg[termichatter.segment.HANDOFF_FIELD]
+				continuation:next()
 			end)
 
 			consumer_task:await(100, 10)
 			assert.are.same({ "queued", "captured" }, afterStep)
+		end)
+
+		it("resolves named mpsc_handoff with no manual setup", function()
+			local app = termichatter()
+			local captured = nil
+
+			app:addProcessor("capture", function(run)
+				captured = run.input
+				return run.input
+			end)
+
+			app.pipe = require("termichatter.pipe").new({ "mpsc_handoff", "capture" })
+			app:log({ message = "hello" })
+
+			local received = coop.spawn(function()
+				return app.output:pop()
+			end):await(200, 10)
+
+			assert.are.equal("hello", received.message)
+			assert.are.equal("hello", captured.message)
+		end)
+
+		it("materializes distinct queues for repeated named mpsc_handoff entries", function()
+			local app = termichatter()
+			app.pipe = require("termichatter.pipe").new({ "mpsc_handoff", "mpsc_handoff" })
+
+			app:startConsumer()
+
+			assert.are.equal("mpsc_handoff", app.pipe[1].type)
+			assert.are.equal("mpsc_handoff", app.pipe[2].type)
+			assert.are_not.equal(app.pipe[1].queue, app.pipe[2].queue)
 		end)
 	end)
 

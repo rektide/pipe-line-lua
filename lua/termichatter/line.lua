@@ -3,6 +3,7 @@
 local inherit = require("termichatter.inherit")
 local Pipe = require("termichatter.pipe")
 local consumer = require("termichatter.consumer")
+local segment = require("termichatter.segment")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 local Line = {}
@@ -40,6 +41,7 @@ end
 ---@return table run The Run instance
 function Line:run(config)
 	local Run = require("termichatter.run")
+	consumer.start_consumer(self)
 	return Run(self, config)
 end
 
@@ -60,19 +62,6 @@ function Line:clone_pipe(segment_list)
 		return Pipe(segment_list)
 	end
 	return self.pipe:clone()
-end
-
---- Create mpsc queue for a segment at given position
----@param pos number Position in pipe array
----@return table queue The MpscQueue instance
-function Line:ensure_mpsc(pos)
-	if not rawget(self, "mpsc") then
-		rawset(self, "mpsc", {})
-	end
-	if not self.mpsc[pos] then
-		self.mpsc[pos] = MpscQueue.new()
-	end
-	return self.mpsc[pos]
 end
 
 --- Resolve a segment name from the registry chain
@@ -148,17 +137,24 @@ end
 ---@param name string Segment name
 ---@param handler function|table The segment handler
 ---@param pos? number Position to insert (default: end)
----@param withQueue? boolean Add mpsc queue at position
-function Line:addProcessor(name, handler, pos, withQueue)
+function Line:addProcessor(name, handler, pos)
 	rawset(self, name, handler)
 	pos = pos or (#self.pipe + 1)
 	self.pipe:splice(pos, 0, name)
-	if withQueue then
-		self:ensure_mpsc(pos)
-	end
 end
 
---- Start async consumer for all mpsc stage
+--- Add an explicit async queue boundary segment
+---@param pos? number Position to insert boundary (default: end)
+---@param config? table { queue?: table, strategy?: 'self'|'clone'|'fork' }
+---@return table handoff The inserted mpsc_handoff segment
+function Line:addHandoff(pos, config)
+	local handoff = segment.mpsc_handoff(config)
+	pos = pos or (#self.pipe + 1)
+	self.pipe:splice(pos, 0, handoff)
+	return handoff
+end
+
+--- Start async consumer for all mpsc_handoff segments
 ---@return table[] task Array of spawned task
 function Line:startConsumer()
 	return consumer.start_consumer(self)
@@ -179,7 +175,6 @@ local function new_line(config)
 
 	local instance = {
 		type = "line",
-		mpsc = {},
 		fact = {},
 	}
 

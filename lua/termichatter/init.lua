@@ -34,6 +34,7 @@ registry:register("cloudevent", segment.cloudevent)
 registry:register("module_filter", segment.module_filter)
 registry:register("priority_filter", segment.priority_filter)
 registry:register("ingester", segment.ingester)
+registry:register("mpsc_handoff", segment.mpsc_handoff_factory())
 registry:register("lattice_resolver", {
 	wants = {},
 	emits = {},

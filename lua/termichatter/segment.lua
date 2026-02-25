@@ -1,6 +1,39 @@
 --- Standard segment library for termichatter
 --- Common processing segment for pipeline
 local M = {}
+local MpscQueue = require("coop.mpsc-queue").MpscQueue
+
+M.HANDOFF_FIELD = "__termichatter_handoff_run"
+
+local function continuation_for_strategy(run, strategy)
+	if strategy == nil or strategy == "self" then
+		return run
+	end
+	if strategy == "clone" then
+		return run:clone(run.input)
+	end
+	if strategy == "fork" then
+		return run:fork(run.input)
+	end
+	error("invalid mpsc_handoff strategy: " .. tostring(strategy), 0)
+end
+
+---@param seg any
+---@return boolean
+function M.is_factory(seg)
+	return type(seg) == "table"
+		and seg.type == "segment_factory"
+		and type(seg.create) == "function"
+end
+
+function M.mpsc_handoff_factory()
+	return {
+		type = "segment_factory",
+		create = function()
+			return M.mpsc_handoff()
+		end,
+	}
+end
 
 --- Timestamper segment: add hrtime timestamp
 M.timestamper = {
@@ -124,5 +157,38 @@ M.ingester = {
 	return input
 	end,
 }
+
+--- mpsc_handoff segment factory: enqueue continuation run and stop current run
+---@param config? table { queue?: table, strategy?: 'self'|'clone'|'fork' }
+---@return table segment
+function M.mpsc_handoff(config)
+	config = config or {}
+	local queue = config.queue or MpscQueue.new()
+	local handoff = {
+		type = "mpsc_handoff",
+		queue = queue,
+		strategy = config.strategy or "self",
+		wants = {},
+		emits = {},
+	}
+
+	handoff.handler = function(run)
+		local continuation = continuation_for_strategy(run, handoff.strategy)
+		queue:push({ [M.HANDOFF_FIELD] = continuation })
+		return false
+	end
+
+	return handoff
+end
+
+---@param seg any
+---@return boolean
+function M.is_mpsc_handoff(seg)
+	return type(seg) == "table"
+		and seg.type == "mpsc_handoff"
+		and seg.queue ~= nil
+		and type(seg.queue.push) == "function"
+		and type(seg.queue.pop) == "function"
+end
 
 return M

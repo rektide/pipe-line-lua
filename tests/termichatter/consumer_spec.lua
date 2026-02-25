@@ -3,20 +3,19 @@ local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 describe("termichatter.consumer", function()
-	local consumer, protocol, Pipe, Line, registry
+	local consumer, protocol, Line, registry, segment
 
 	before_each(function()
 		package.loaded["termichatter.consumer"] = nil
 		package.loaded["termichatter.protocol"] = nil
-		package.loaded["termichatter.pipe"] = nil
 		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.run"] = nil
 		package.loaded["termichatter.registry"] = nil
+		package.loaded["termichatter.segment"] = nil
 		consumer = require("termichatter.consumer")
 		protocol = require("termichatter.protocol")
-		Pipe = require("termichatter.pipe")
 		Line = require("termichatter.line")
 		registry = require("termichatter.registry")
+		segment = require("termichatter.segment")
 	end)
 
 	local function make_line(segment_list, extra)
@@ -27,7 +26,7 @@ describe("termichatter.consumer", function()
 	end
 
 	describe("make_consumer", function()
-		it("processes message from queue through segment", function()
+		it("processes enqueued continuation runs", function()
 			local processed = false
 			registry:register("marker", { handler = function(run)
 				processed = true
@@ -35,83 +34,134 @@ describe("termichatter.consumer", function()
 			end })
 
 			local queue = MpscQueue.new()
-			local l = make_line({ "marker" })
-			l.mpsc = { [1] = queue }
+			local handoff = segment.mpsc_handoff({ queue = queue })
+			local l = make_line({ handoff, "marker" })
 
-			local consume = consumer.make_consumer(l, 1, queue)
+			local consume = consumer.make_consumer(queue)
+			local task = coop.spawn(consume)
 
-			queue:push({ message = "test" })
+			l:log({ message = "test" })
 			queue:push(vim.deepcopy(protocol.shutdown))
 
-			local task = coop.spawn(consume)
 			task:await(200, 10)
-
 			assert.is_true(processed)
 		end)
 
-		it("forwards shutdown to output", function()
+		it("ignores completion signals on handoff queue", function()
 			local queue = MpscQueue.new()
-			local l = make_line({})
-			l.mpsc = { [1] = queue }
+			local consume = consumer.make_consumer(queue)
 
-			local consume = consumer.make_consumer(l, 1, queue)
-
-			queue:push(vim.deepcopy(protocol.shutdown))
-
-			local task = coop.spawn(consume)
-			task:await(100, 10)
-
-			local msg = coop.spawn(function()
-				return l.output:pop()
-			end):await(50, 10)
-
-			assert.are.equal("termichatter.shutdown", msg.type)
-		end)
-
-		it("forwards completion signal to output", function()
-			local queue = MpscQueue.new()
-			local l = make_line({})
-			l.mpsc = { [1] = queue }
-
-			local consume = consumer.make_consumer(l, 1, queue)
-
+			queue:push(vim.deepcopy(protocol.hello))
 			queue:push(vim.deepcopy(protocol.done))
 			queue:push(vim.deepcopy(protocol.shutdown))
 
 			local task = coop.spawn(consume)
 			task:await(100, 10)
+		end)
+
+		it("default strategy queues the current run (self)", function()
+			registry:register("marker", { handler = function(run)
+				run.input.marker = true
+				return run.input
+			end })
+
+			local queue = MpscQueue.new()
+			local handoff = segment.mpsc_handoff({ queue = queue })
+			local l = make_line({ handoff, "marker" })
+			local Run = require("termichatter.run")
+
+			local r = Run.new(l, { noStart = true, input = { message = "test" } })
+			r:execute()
+			r.pos = 99
+
+			local consume = consumer.make_consumer(queue)
+			queue:push(vim.deepcopy(protocol.shutdown))
+			local task = coop.spawn(consume)
+			task:await(200, 10)
 
 			local msg = coop.spawn(function()
 				return l.output:pop()
 			end):await(50, 10)
+			assert.is_nil(msg.marker)
+		end)
 
-			assert.are.equal("termichatter.completion.done", msg.type)
+		it("clone strategy snapshots continuation cursor", function()
+			registry:register("marker", { handler = function(run)
+				run.input.marker = true
+				return run.input
+			end })
+
+			local queue = MpscQueue.new()
+			local handoff = segment.mpsc_handoff({ queue = queue, strategy = "clone" })
+			local l = make_line({ handoff, "marker" })
+			local Run = require("termichatter.run")
+
+			local r = Run.new(l, { noStart = true, input = { message = "test" } })
+			r:execute()
+			r.pos = 99
+
+			local consume = consumer.make_consumer(queue)
+			queue:push(vim.deepcopy(protocol.shutdown))
+			local task = coop.spawn(consume)
+			task:await(200, 10)
+
+			local msg = coop.spawn(function()
+				return l.output:pop()
+			end):await(50, 10)
+			assert.is_true(msg.marker)
+		end)
+
+		it("fork strategy isolates continuation from later pipe mutation", function()
+			registry:register("marker", { handler = function(run)
+				run.input.marker = true
+				return run.input
+			end })
+			registry:register("replacement", { handler = function(run)
+				run.input.replacement = true
+				return run.input
+			end })
+
+			local queue = MpscQueue.new()
+			local handoff = segment.mpsc_handoff({ queue = queue, strategy = "fork" })
+			local l = make_line({ handoff, "marker" })
+			local Run = require("termichatter.run")
+
+			local r = Run.new(l, { noStart = true, input = { message = "test" } })
+			r:execute()
+			l.pipe:splice(2, 1, "replacement")
+
+			local consume = consumer.make_consumer(queue)
+			queue:push(vim.deepcopy(protocol.shutdown))
+			local task = coop.spawn(consume)
+			task:await(200, 10)
+
+			local msg = coop.spawn(function()
+				return l.output:pop()
+			end):await(50, 10)
+			assert.is_true(msg.marker)
+			assert.is_nil(msg.replacement)
 		end)
 	end)
 
 	describe("start_consumer / stop_consumer", function()
-		it("starts and stops consumer for async stage", function()
-			registry:register("async_seg", { handler = function(run)
-				return run.input
-			end })
-
-			local l = make_line({ "async_seg" })
-			l:ensure_mpsc(1)
+		it("starts and stops consumers for handoff segments", function()
+			local queue = MpscQueue.new()
+			local handoff = segment.mpsc_handoff({ queue = queue })
+			local l = make_line({ handoff })
 
 			local task_list = consumer.start_consumer(l)
-			assert.is_true(#task_list > 0)
+			assert.are.equal(1, #task_list)
+			assert.is_not_nil(l._consumer_task_by_queue[queue])
 
 			consumer.stop_consumer(l)
 			assert.are.equal(0, #l._consumer_task)
+			assert.is_nil(next(l._consumer_task_by_queue))
 		end)
 
 		it("is idempotent when started repeatedly", function()
-			registry:register("async_seg", { handler = function(run)
-				return run.input
-			end })
-
-			local l = make_line({ "async_seg" })
-			l:ensure_mpsc(1)
+			local queue = MpscQueue.new()
+			local handoff = segment.mpsc_handoff({ queue = queue })
+			local l = make_line({ handoff })
 
 			local first = consumer.start_consumer(l)
 			assert.are.equal(1, #first)
@@ -123,25 +173,20 @@ describe("termichatter.consumer", function()
 			consumer.stop_consumer(l)
 		end)
 
-		it("starts only newly added async stages on later calls", function()
-			registry:register("async_a", { handler = function(run)
-				return run.input
-			end })
-			registry:register("async_b", { handler = function(run)
-				return run.input
-			end })
-
-			local l = make_line({ "async_a", "async_b" })
-			l:ensure_mpsc(1)
+		it("starts only newly discovered handoff queues on later calls", function()
+			local queue1 = MpscQueue.new()
+			local queue2 = MpscQueue.new()
+			local handoff1 = segment.mpsc_handoff({ queue = queue1 })
+			local l = make_line({ handoff1 })
 
 			local first = consumer.start_consumer(l)
 			assert.are.equal(1, #first)
 
-			l:ensure_mpsc(2)
+			l:addHandoff(2, { queue = queue2 })
 			local second = consumer.start_consumer(l)
 			assert.are.equal(2, #second)
-			assert.is_not_nil(l._consumer_task_by_pos[1])
-			assert.is_not_nil(l._consumer_task_by_pos[2])
+			assert.is_not_nil(l._consumer_task_by_queue[queue1])
+			assert.is_not_nil(l._consumer_task_by_queue[queue2])
 
 			consumer.stop_consumer(l)
 		end)

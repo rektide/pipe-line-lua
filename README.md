@@ -224,21 +224,27 @@ resolver.resolve_line(my_line)  -- modifies line.pipe directly
 
 ## Async Execution
 
-Segment can execute asynchronously via mpsc queue:
+Async handoff is explicit: insert a `mpsc_handoff` segment into the pipe.
 
 ```lua
 local app = termichatter({ source = "myapp" })
+local segment = require("termichatter.segment")
 
--- Add mpsc queue at position 2
-app:ensure_mpsc(2)
+-- Optional custom boundary with strategy/queue control
+local custom_handoff = segment.mpsc_handoff({ strategy = "fork" })
 
--- Start consumer
-app:startConsumer()
+app.pipe = require("termichatter.pipe")({
+    "timestamper",
+    "mpsc_handoff", -- default boundary from registry (independent queue)
+    -- custom_handoff, -- use this instead if you want custom strategy/queue
+    "cloudevent",
+    "module_filter",
+})
 
--- Log (async handoff at position 2)
+-- Log (handoff consumer starts automatically)
 app:info("async message")
 
--- Cleanup
+-- Optional cleanup when shutting down
 app:stopConsumer()
 ```
 
@@ -338,6 +344,12 @@ tracker:done()  -- emits shutdown when hello count == done count
 | `priority_filter` | — | — | Filter by log level |
 | `ingester` | — | — | Apply custom decoration function |
 | `lattice_resolver` | — | — | Dependency injection via pipeline self-rewriting |
+
+Async boundary helper:
+
+| Helper | Description |
+|--------|-------------|
+| `segment.mpsc_handoff(config)` | Create explicit queue handoff segment (`config.queue` optional, segment strategy: `self`/`clone`/`fork`) |
 
 ## Structured Message
 

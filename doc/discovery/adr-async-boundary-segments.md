@@ -100,13 +100,13 @@ Positive:
 Tradeoffs:
 
 - Users may need helper APIs for ergonomic insertion/removal of boundary segments.
-- Existing APIs (`ensure_mpsc(pos)`, positional maps) need compatibility path or deprecation.
+- Position-based async APIs (`ensure_mpsc(pos)`, positional maps) are removed, not deprecated.
 
 ## Implementation direction
 
 1. Introduce an explicit handoff segment (`mpsc_handoff` name may be finalized).
 2. Route consumer lifecycle through boundary segment identity rather than raw positional maps.
-3. Keep compatibility helpers short-term (for existing tests/integrations), but document boundary segments as primary model.
+3. Remove old per-position async capability and compatibility helpers entirely.
 4. Add regression tests for:
    - splice before/after handoff boundary,
    - clone/fork behavior around handoff boundaries,
@@ -114,7 +114,6 @@ Tradeoffs:
 
 ## Deferred / not decided
 
-- Whether to retain an optional `line.queue` / `run.queue` override layer as advanced policy.
 - Whether resolver can auto-insert handoff boundaries based on configuration.
 - Final naming and metadata shape for boundary segment configuration.
 

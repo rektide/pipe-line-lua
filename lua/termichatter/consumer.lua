@@ -1,7 +1,8 @@
---- Consumer: async driver for mpsc segment
---- Drive async stage in a line
+--- Consumer: async driver for mpsc_handoff segment
+--- Drives explicit queue boundary segments in a line
 local coop = require("coop")
 local protocol = require("termichatter.protocol")
+local segment = require("termichatter.segment")
 
 local M = {}
 
@@ -15,14 +16,10 @@ local function is_task_active(task)
 	return true
 end
 
---- Create a consumer for a single mpsc stage
----@param line table The line with the pipeline
----@param pos number Position of the async stage
+--- Create a consumer for a single mpsc queue
 ---@param queue table The MpscQueue to consume from
 ---@return function consumer The consumer coroutine function
-function M.make_consumer(line, pos, queue)
-	local Run = require("termichatter.run")
-
+function M.make_consumer(queue)
 	return function()
 		while true do
 			local msg = queue:pop()
@@ -31,68 +28,76 @@ function M.make_consumer(line, pos, queue)
 			end
 
 			if protocol.isShutdown(msg) then
-				local output = line.output
-				if output then
-					output:push(msg)
-				end
 				break
 			end
 
 			if protocol.isCompletion(msg) then
-				local output = line.output
-				if output then
-					output:push(msg)
-				end
+				-- ignore completion signals on internal handoff queue
 			else
-				local run = Run.new(line, {
-					noStart = true,
-					input = msg,
-				})
-				run.pos = pos
-				local seg = run.pipe[pos]
-				local handler = run:resolve(seg)
-				if handler then
-					local result = handler(run)
-					if result == false then
-						-- filtered
-					elseif result ~= nil then
-						run.input = result
-						run:next()
+				if type(msg) == "table" and msg[segment.HANDOFF_FIELD] then
+					local continuation = msg[segment.HANDOFF_FIELD]
+					if type(continuation) ~= "table" or type(continuation.next) ~= "function" then
+						error("invalid mpsc_handoff continuation payload", 0)
 					end
+					continuation:next()
+				else
+					error("invalid mpsc queue payload; expected handoff continuation or protocol signal", 0)
 				end
 			end
 		end
 	end
 end
 
---- Start consumer for all async stage in a line
+local function queue_for_segment(line, pos)
+	local seg = line.pipe[pos]
+	local resolved = line:resolve_segment(seg)
+	if segment.is_factory(resolved) then
+		local created = resolved.create()
+		line.pipe[pos] = created
+		resolved = created
+	end
+	if segment.is_mpsc_handoff(resolved) then
+		return resolved.queue
+	end
+	return nil
+end
+
+--- Start consumer for all explicit async queue boundaries in a line
 ---@param line table The line to start consumer for
 ---@return table[] task Array of spawned task
 function M.start_consumer(line)
 	line._consumer_task = line._consumer_task or {}
-	line._consumer_task_by_pos = line._consumer_task_by_pos or {}
+	line._consumer_task_by_queue = line._consumer_task_by_queue or {}
 
-	local active_task_list = {}
-	for pos, task in pairs(line._consumer_task_by_pos) do
-		if is_task_active(task) then
-			table.insert(active_task_list, task)
-		else
-			line._consumer_task_by_pos[pos] = nil
-		end
-	end
-	line._consumer_task = active_task_list
-
-	for pos, queue in pairs(line.mpsc or {}) do
-		if queue and type(queue.pop) == "function" then
-			local existing_task = line._consumer_task_by_pos[pos]
+	local seen_queue = {}
+	for i = 1, #line.pipe do
+		local queue = queue_for_segment(line, i)
+		if queue and not seen_queue[queue] then
+			seen_queue[queue] = true
+			local existing_task = line._consumer_task_by_queue[queue]
 			if not is_task_active(existing_task) then
-				local consumer_fn = M.make_consumer(line, pos, queue)
+				local consumer_fn = M.make_consumer(queue)
 				local task = coop.spawn(consumer_fn)
-				line._consumer_task_by_pos[pos] = task
+				line._consumer_task_by_queue[queue] = task
 				table.insert(line._consumer_task, task)
 			end
 		end
 	end
+
+	local active_task_list = {}
+	for queue, task in pairs(line._consumer_task_by_queue) do
+		if not seen_queue[queue] then
+			if is_task_active(task) then
+				task:cancel()
+			end
+			line._consumer_task_by_queue[queue] = nil
+		elseif is_task_active(task) then
+			table.insert(active_task_list, task)
+		else
+			line._consumer_task_by_queue[queue] = nil
+		end
+	end
+	line._consumer_task = active_task_list
 
 	return line._consumer_task
 end
@@ -111,7 +116,7 @@ function M.stop_consumer(line)
 	end
 
 	line._consumer_task = {}
-	line._consumer_task_by_pos = {}
+	line._consumer_task_by_queue = {}
 end
 
 return M
