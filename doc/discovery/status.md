@@ -48,7 +48,6 @@ All 89 tests now pass (0 failures).
 These items from [`doc/review/pipecopy-next.md`](/doc/review/pipecopy-next.md) are designed but not yet implemented:
 
 - **Splice journal trimming** — the journal grows unbounded. Implement a bounded ring (N=16) with fallback to identity scan when a run has missed too many entries.
-- **Multi-element `next()` ergonomic** — the `run:clone(element); clone:next()` pattern works but is two calls. A convenience `run:emit(element)` that clones and advances in one call would be cleaner for fan-out pipe.
 - **Structural vs per-element fact** — the current implementation tracks fact per-run with lazy copy-on-write to line. The review raised whether some fact are structural (describing pipeline capability) vs per-element (describing this specific element). No mechanism exists to distinguish these yet.
 - **`line:send()` fast path** — for simple pipelines with no splicing, no fact tracking, and no fan-out, a lighter `line:send(element)` that skips Run creation entirely could be a performance win. The run only materializes when a segment needs context.
 

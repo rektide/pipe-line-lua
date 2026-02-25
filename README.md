@@ -141,6 +141,7 @@ local Run = require("termichatter.run")
 local r = Run(line, { input = { message = "hello" }, noStart = true })
 r:execute()    -- walk the pipe from current pos
 r:next()       -- advance and continue
+r:emit(el)     -- clone + next convenience for fan-out
 r:clone(el)    -- lightweight copy for fan-out
 r:fork(el)     -- fully independent copy
 r:own("pipe")  -- take ownership, breaking line read-through
@@ -156,8 +157,7 @@ A segment can emit multiple element by cloning the run:
 ```lua
 registry:register("splitter", function(run)
     for _, part in ipairs(run.input.part) do
-        local child = run:clone(part)
-        child:next()
+        run:emit(part)
     end
     -- return nil: we handled forwarding
 end)
@@ -168,6 +168,7 @@ end)
 | Operation | Cost | Use case |
 |-----------|------|----------|
 | `run:next()` | 0 alloc | Normal single-element flow |
+| `run:emit(el)` | 1 small table | Fan-out convenience |
 | `run:clone(el)` | 1 small table | Fan-out, shares everything |
 | `run:clone(el)` + `set_fact()` | 2 small table | Per-element fact |
 | `run:fork(el)` | Everything cloned | Full detach from line |

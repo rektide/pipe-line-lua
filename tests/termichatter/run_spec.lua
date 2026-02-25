@@ -37,10 +37,12 @@ describe("termichatter.run", function()
 			assert.is_nil(rawget(r, "own"))
 			assert.is_nil(rawget(r, "set_fact"))
 			assert.is_nil(rawget(r, "next"))
+			assert.is_nil(rawget(r, "emit"))
 
 			-- but they should be accessible
 			assert.is_function(r.execute)
 			assert.is_function(r.resolve)
+			assert.is_function(r.emit)
 		end)
 	end)
 
@@ -121,6 +123,29 @@ describe("termichatter.run", function()
 			r.pos = 1
 			r:next()
 			assert.are.same({ "s2" }, order)
+		end)
+	end)
+
+	describe("emit", function()
+		it("clones and advances with new element", function()
+			local results = {}
+			registry:register("anchor", { handler = function(run) return run.input end })
+			registry:register("collector", { handler = function(run)
+				table.insert(results, run.input)
+				return run.input
+			end })
+
+			local l = make_line({ "anchor", "collector" })
+			local r = Run.new(l, { noStart = true, input = { source = true } })
+			r.pos = 1
+
+			local child = r:emit({ emitted = true })
+
+			assert.are.equal(1, #results)
+			assert.is_true(results[1].emitted)
+			assert.are_not.equal(r, child)
+			assert.is_true(child.input.emitted)
+			assert.are.equal(1, r.pos)
 		end)
 	end)
 
@@ -374,6 +399,29 @@ describe("termichatter.run", function()
 			assert.are.equal(1, results[1].id)
 			assert.are.equal(2, results[2].id)
 			assert.are.equal(3, results[3].id)
+		end)
+
+		it("splitter pipe emits multiple element via emit", function()
+			local results = {}
+			registry:register("collector", { handler = function(run)
+				table.insert(results, run.input)
+				return run.input
+			end })
+
+			registry:register("splitter_emit", { handler = function(run)
+				for _, part in ipairs(run.input.part) do
+					run:emit(part)
+				end
+				return false
+			end })
+
+			local l = make_line({ "splitter_emit", "collector" })
+			Run.new(l, { input = { part = { { id = "a" }, { id = "b" }, { id = "c" } } } })
+
+			assert.are.equal(3, #results)
+			assert.are.equal("a", results[1].id)
+			assert.are.equal("b", results[2].id)
+			assert.are.equal("c", results[3].id)
 		end)
 
 		it("fan-out element reach output independently", function()

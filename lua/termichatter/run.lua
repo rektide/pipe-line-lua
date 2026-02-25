@@ -135,6 +135,16 @@ function Run:next(element)
 	end
 end
 
+--- Emit a new element by cloning this run and advancing it.
+--- Convenience for fan-out: run:clone(element):next().
+---@param element any Element to emit downstream
+---@return table run The emitted child run
+function Run:emit(element)
+	local child = self:clone(element)
+	child:next()
+	return child
+end
+
 --- Set a fact on this run, lazily creating the local fact table
 --- Reads still fall through to line.fact via metatable
 ---@param name string Fact name
