@@ -51,3 +51,24 @@ These items from [`doc/review/pipecopy-next.md`](/doc/review/pipecopy-next.md) a
 - **Multi-element `next()` ergonomic** — the `run:clone(element); clone:next()` pattern works but is two calls. A convenience `run:emit(element)` that clones and advances in one call would be cleaner for fan-out pipe.
 - **Structural vs per-element fact** — the current implementation tracks fact per-run with lazy copy-on-write to line. The review raised whether some fact are structural (describing pipeline capability) vs per-element (describing this specific element). No mechanism exists to distinguish these yet.
 - **`line:send()` fast path** — for simple pipelines with no splicing, no fact tracking, and no fan-out, a lighter `line:send(element)` that skips Run creation entirely could be a performance win. The run only materializes when a segment needs context.
+
+## Review Update (2026-02-25)
+
+Current snapshot after reading README + source + tests:
+
+- Test suite is green: `122 successes / 0 failures / 0 errors / 0 pending` via `nvim -l tests/busted.lua`.
+- The core model (`Line`/`Pipe`/`Run`) remains a strong design: it is easy to reason about and has good test coverage across sync, async, fan-out, and resolver paths.
+
+### New Design Risks Found
+
+- **Registry inheritance vs resolver index mismatch** — derived registries initialize an empty `emits_index` in [`/lua/termichatter/registry.lua`](/lua/termichatter/registry.lua), while resolver prefers `registry.emits_index` if present in [`/lua/termichatter/resolver.lua`](/lua/termichatter/resolver.lua). This can hide parent providers when resolving from child registries.
+- **Resolver over-constrains provider selection** — resolver collects all providers for unsatisfied wants, then `kahn_sort` requires all candidates to be schedulable. If one alternate provider is unschedulable, resolution fails even when another valid provider set exists.
+- **Silent missing-segment behavior** — unresolved segment names are skipped without signal in both [`/lua/termichatter/run.lua`](/lua/termichatter/run.lua) and [`/lua/termichatter/consumer.lua`](/lua/termichatter/consumer.lua), which makes typos/misconfiguration hard to detect.
+- **Clone/sync state coupling edge cases** — `Run:clone()` does not raw-copy `_rev`/owned fields while `sync()` relies on `rawget`, creating subtle behavior differences between parent and clone under repeated splice activity.
+- **Completion semantics drift between components** — `protocol.isCompletion()` includes hello/done/shutdown in [`/lua/termichatter/protocol.lua`](/lua/termichatter/protocol.lua), but outputters do not treat them consistently (buffer exits on completion; fanout ignores completion until shutdown) in [`/lua/termichatter/outputter.lua`](/lua/termichatter/outputter.lua).
+- **Consumer lifecycle is not idempotent** — repeated `start_consumer()` calls append more tasks with no dedupe in [`/lua/termichatter/consumer.lua`](/lua/termichatter/consumer.lua).
+
+### Clarifications vs Earlier Notes
+
+- `line_spec.lua` now exists and is substantial: [`/tests/termichatter/line_spec.lua`](/tests/termichatter/line_spec.lua).
+- The remaining major work is less "tests missing" and more "contract decisions": strict-vs-lenient segment resolution, resolver provider strategy, and unified completion protocol semantics.

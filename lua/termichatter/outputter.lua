@@ -53,10 +53,12 @@ function M.buffer(config)
 				if not msg then
 					break
 				end
-				if protocol.isCompletion(msg) then
+				if protocol.isShutdown(msg) then
 					break
 				end
-				self:write(msg)
+				if not protocol.isCompletion(msg) then
+					self:write(msg)
+				end
 			end
 		end
 	end
