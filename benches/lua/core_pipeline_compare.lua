@@ -131,8 +131,8 @@ local function run_workload()
 
 	local total = 0
 	local seen = 0
-	while not module.outputQueue:empty() do
-		local msg = module.outputQueue:pop()
+	while not module.output:empty() do
+		local msg = module.output:pop()
 		if msg then
 			seen = seen + 1
 			total = total + msg.score

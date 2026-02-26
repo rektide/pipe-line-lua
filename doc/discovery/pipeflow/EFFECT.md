@@ -277,7 +277,7 @@ const makeLine = <In, Out>(
 ): Effect.Effect<Line<In, Out>, never, Scope | RegistryService> =>
   Effect.gen(function* () {
     const registry = yield* RegistryService
-    const outputQueue = yield* Queue.unbounded<Out>()
+    const output = yield* Queue.unbounded<Out>()
     const source = config.source ?? "effectflow"
 
     // Resolve all pipe from registry or use directly
@@ -310,12 +310,12 @@ const makeLine = <In, Out>(
         }
 
         // Push to output
-        yield* Queue.offer(outputQueue, current as Out)
+        yield* Queue.offer(output, current as Out)
       })
 
     const line: Line<In, Out> = {
       send: execute,
-      output: outputQueue,
+      output,
       source,
 
       derive: (childConfig) =>
@@ -397,11 +397,11 @@ type StreamPipe<In, Out, E = never, R = never> = (
  */
 const flattenStreamPipe = <In, Out, E, R>(
   streamPipe: StreamPipe<In, Out, E, R>,
-  outputQueue: Queue.Enqueue<Out>
+  output: Queue.Enqueue<Out>
 ): Pipe<In, void, E, R> =>
   (input) =>
     streamPipe(input).pipe(
-      Stream.runForEach((item) => Queue.offer(outputQueue, item)),
+      Stream.runForEach((item) => Queue.offer(output, item)),
       Effect.as(Option.some(undefined as void))
     )
 
@@ -707,19 +707,19 @@ const makeStreamLine = <In, Out>(
 > =>
   Effect.gen(function* () {
     const inputQueue = yield* Queue.unbounded<In>()
-    const outputQueue = yield* Queue.unbounded<Out>()
+    const output = yield* Queue.unbounded<Out>()
 
     // Consumer fiber
     yield* Effect.fork(
       Stream.fromQueue(inputQueue).pipe(
         Stream.flatMap(transform),
-        Stream.runForEach((item) => Queue.offer(outputQueue, item))
+        Stream.runForEach((item) => Queue.offer(output, item))
       )
     )
 
     return {
       send: (input) => Queue.offer(inputQueue, input),
-      output: outputQueue,
+      output,
     }
   })
 

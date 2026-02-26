@@ -26,7 +26,7 @@ termichatter has two execution modes for pipeline stages:
 ┌─────────────────────────────────────────────────────────────────┐
 │                       ASYNC PATH                                │
 │  Logger → pipeline.log() pushes to queue → CONSUMER pops       │
-│           and processes → pushes to next queue or outputQueue  │
+│           and processes → pushes to next queue or output       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,7 +103,7 @@ Here's what happens inside a consumer, step by step:
                            ▼                    ▼
                     ┌──────────────┐   ┌─────────────────────────┐
                     │ Forward to   │   │ Is it a completion      │
-                    │ outputQueue  │   │ signal? (hello/done)    │
+                    │ output       │   │ signal? (hello/done)    │
                     │ and EXIT     │   └─────────────────────────┘
                     └──────────────┘          │           │
                                             YES          NO
@@ -117,7 +117,7 @@ Here's what happens inside a consumer, step by step:
                                              └─────┬─────┘
                                                    ▼
                                     ┌─────────────────────────────────┐
-                                    │ Push result to outputQueue      │
+                                    │ Push result to output            │
                                     │ (if result is not nil)          │
                                     └─────────────────────────────────┘
                                                    │
@@ -130,7 +130,7 @@ flowchart TD
     start_loop[consumer:start async loop] --> pop_msg[inputQueue:pop]
     pop_msg --> check_shutdown{Is shutdown signal?}
     
-    check_shutdown -->|YES| forward_exit[Forward to outputQueue & EXIT]
+    check_shutdown -->|YES| forward_exit[Forward to output & EXIT]
     check_shutdown -->|NO| check_completion{Is completion signal?}
     
     check_completion -->|YES| forward_asis[Forward as-is]
@@ -139,7 +139,7 @@ flowchart TD
     forward_asis --> push_result{Result not nil?}
     run_handlers --> push_result
     
-    push_result -->|YES| push_output[Push to outputQueue]
+    push_result -->|YES| push_output[Push to output]
     push_result -->|NO| loop_back[Continue loop]
     
     push_output --> loop_back
@@ -156,7 +156,7 @@ flowchart TD
 
 4. **Handlers can filter**: If a handler returns `nil`, the message is dropped (not forwarded).
 
-5. **Results are forwarded**: Non-nil results go to `outputQueue` for the next stage or final output.
+5. **Results are forwarded**: Non-nil results go to `output` for the next stage or final output.
 
 ## API Reference
 
@@ -170,7 +170,7 @@ local consumer = require("termichatter.consumer")
 local c = consumer.create({
     inputQueue = myInputQueue,      -- Required: where to read messages
     handlers = { fn1, fn2, fn3 },   -- Optional: processing functions
-    outputQueue = myOutputQueue,    -- Optional: where to send results
+    output = myOutput,    -- Optional: where to send results
 })
 ```
 
@@ -180,7 +180,7 @@ local c = consumer.create({
 |-------|------|-------------|
 | `inputQueue` | MpscQueue | Source queue to pop messages from |
 | `handlers` | function[] | Array of `function(msg) -> msg or nil` |
-| `outputQueue` | MpscQueue | Destination for processed messages |
+| `output` | MpscQueue | Destination for processed messages |
 
 **Returned consumer object:**
 
@@ -211,7 +211,7 @@ local c = consumer.create({
             return msg
         end,
     },
-    outputQueue = output,
+    output = output,
 })
 
 -- Start consuming in background
@@ -236,14 +236,14 @@ Creates a chain of consumers connected by intermediate queues. Each stage is a s
 local pipeline = consumer.createPipeline(
     stages,       -- Array of { handlers: function[] }
     inputQueue,   -- First queue (entry point)
-    outputQueue   -- Final queue (exit point)
+    output   -- Final queue (exit point)
 )
 ```
 
 **What it builds internally:**
 
 ```
-inputQueue → [Consumer 1] → intermediateQ1 → [Consumer 2] → intermediateQ2 → [Consumer 3] → outputQueue
+inputQueue → [Consumer 1] → intermediateQ1 → [Consumer 2] → intermediateQ2 → [Consumer 3] → output
                   ↑                               ↑                               ↑
             stages[1].handlers            stages[2].handlers             stages[3].handlers
 ```
@@ -255,7 +255,7 @@ flowchart LR
     intermediate_q1 --> consumer_2[Consumer 2]
     consumer_2 --> intermediate_q2[(intermediateQ2)]
     intermediate_q2 --> consumer_3[Consumer 3]
-    consumer_3 --> output_q[(outputQueue)]
+    consumer_3 --> output_q[(output)]
     
     stages_1[stages 1 handlers] -.-> consumer_1
     stages_2[stages 2 handlers] -.-> consumer_2
@@ -415,7 +415,7 @@ local c = consumer.create({
             return msg  -- Always forward, even errors
         end,
     },
-    outputQueue = output,
+    output = output,
 })
 ```
 
@@ -441,7 +441,7 @@ end
 | Module | Relationship to Consumer |
 |--------|-------------------------|
 | `pipeline` | Creates queues that consumers read from; `pipeline.log()` pushes to queues |
-| `outputters` | Often the final consumer in a chain; reads from `outputQueue` |
+| `outputters` | Often the final consumer in a chain; reads from `output` |
 | `protocol` | Defines shutdown/completion signals that consumers recognize |
 | `drivers` | Can be attached to consumers for scheduled execution |
 | `processors` | Standalone processor classes that can also consume from queues (similar pattern) |

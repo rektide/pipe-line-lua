@@ -189,7 +189,7 @@ local outTask = coop.spawn(function()
     bufOut:start()  -- Runs forever until completion signal
 end)
 module:info("Starting up")
-module.outputQueue:push(termichatter.completion.done)
+module.output:push(termichatter.completion.done)
 outTask:await(200, 10)  -- Wait for task to complete
 vim.wait(100, ...)      -- Additional wait for buffer
 ```

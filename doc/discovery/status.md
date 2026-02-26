@@ -20,7 +20,7 @@ All 89 tests now pass (0 failures).
 - **Resolver pos off-by-one** — after splicing and removing itself, the resolver set `run.pos = pos`, but `execute()`'s `pos++` skipped the first spliced segment. Fixed to `pos - 1` so the increment lands correctly.
 - **Resolver not registered in tests** — `resolver_spec.lua` used the raw registry module which never had `lattice_resolver` registered as a segment. The string couldn't be resolved, so the handler was silently skipped. Fixed by registering it in `before_each`.
 - **baseLogger log priority recursion** — same `log` shadowing bug as the line-level methods, in the logger's priority method loop. Fixed by skipping `"log"` there too.
-- **Integration multiple-producers** — test set `outputQueue` (v1 alias) but the run system pushes to `output`. Fixed test to set both.
+- **Integration multiple-producers** — test now uses `output` consistently with the run system.
 
 ## Further Improvement
 
@@ -33,7 +33,6 @@ All 89 tests now pass (0 failures).
 
 ### Architecture
 
-- **`output` vs `outputQueue` duality** — the run system uses `output`, v1 compat uses `outputQueue`. Both are set in `makePipeline` but they can drift if user code sets one but not the other (as the multiple-producers test demonstrated). Consider making `outputQueue` a getter that returns `self.output`, or dropping the alias.
 - **Silent segment resolution failure** — when a segment name can't be resolved (typo, missing registration), `execute()` silently skips it. This caused the resolver test failures to be invisible. Consider a warning or configurable strict mode.
 
 ### Performance
