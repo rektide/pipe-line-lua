@@ -306,50 +306,24 @@ local function stop_prepared_segments(line)
 	return tasks
 end
 
---- Return a deferred that settles when all currently matching segment.stopped
---- awaitables resolve, including ones added later while the line is still open.
+--- Return a deferred that settles when currently matching segment.stopped
+--- awaitables resolve.
 ---@param selector? string|function Segment type or predicate
 ---@return table stopped_live Deferred with await()
 function Line:stopped_live(selector)
 	local stopped_live = done.create_deferred()
-	local seen = {}
-	local function line_is_stopped()
-		return type(self.stopped) == "table"
-			and type(self.stopped.is_resolved) == "function"
-			and self.stopped:is_resolved()
+	local tasks = {}
+	local selected = self:select_segments(selector)
+	for _, seg in ipairs(selected) do
+		cooputil.collect_awaitables(seg.stopped, tasks)
+	end
+
+	if type(self.stopped) == "table" and not self.stopped:is_resolved() then
+		table.insert(tasks, self.stopped)
 	end
 
 	local task = coop.spawn(function()
-		local observed_rev = self.pipe and self.pipe.rev or 0
-		while true do
-			local to_await = {}
-			local selected = self:select_segments(selector)
-			for _, seg in ipairs(selected) do
-				local collected = cooputil.collect_awaitables(seg.stopped)
-				for _, awaited in ipairs(collected) do
-					if not seen[awaited] then
-						seen[awaited] = true
-						table.insert(to_await, awaited)
-					end
-				end
-			end
-
-			if #to_await > 0 then
-				cooputil.await_all(to_await)
-			elseif line_is_stopped() then
-				break
-			else
-				vim.wait(50, function()
-					local current_rev = self.pipe and self.pipe.rev or observed_rev
-					if current_rev ~= observed_rev then
-						observed_rev = current_rev
-						return true
-					end
-					return line_is_stopped()
-				end, 10)
-			end
-		end
-
+		cooputil.await_all(tasks)
 		stopped_live:resolve({ stopped = true, source = self:full_source() })
 	end)
 

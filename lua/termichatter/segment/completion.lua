@@ -79,28 +79,9 @@ function M.completion_run(signal, name)
 	return run_config
 end
 
----@param self table
----@return table state
-local function ensure_segment_state(self)
-	if type(self.hello) ~= "number" then
-		self.hello = 0
-	end
-	if type(self.done) ~= "number" then
-		self.done = 0
-	end
-	if type(self.settled) ~= "boolean" then
-		self.settled = false
-	end
-	if type(self.stopped) ~= "table" or type(self.stopped.resolve) ~= "function" then
-		self.stopped = done.create_deferred()
-	end
-	return self
-end
-
 ---@param state table
----@param run table
----@return boolean applied
-function M.apply(state, run)
+---@return table state
+function M.ensure_completion_state(state)
 	if type(state.hello) ~= "number" then
 		state.hello = 0
 	end
@@ -110,6 +91,24 @@ function M.apply(state, run)
 	if type(state.settled) ~= "boolean" then
 		state.settled = false
 	end
+	if type(state.stopped) ~= "table" or type(state.stopped.resolve) ~= "function" then
+		state.stopped = done.create_deferred()
+	end
+	if state.signal == nil then
+		state.signal = nil
+	end
+	if state.name == nil then
+		state.name = nil
+	end
+
+	return state
+end
+
+---@param state table
+---@param run table
+---@return boolean applied
+function M.apply(state, run)
+	state = M.ensure_completion_state(state)
 
 	local signal = M.get_completion_signal(run)
 	if signal == nil then
@@ -138,11 +137,11 @@ function M.build_segment(define)
 		wants = {},
 		emits = {},
 		init = function(self, context)
-			ensure_segment_state(self)
+			M.ensure_completion_state(self)
 			return self.stopped
 		end,
 		ensure_prepared = function(self, context)
-			ensure_segment_state(self)
+			M.ensure_completion_state(self)
 			if not self._hello_emitted then
 				self._hello_emitted = true
 				local line = context and context.line
@@ -150,10 +149,10 @@ function M.build_segment(define)
 					line:run(M.completion_run(M.COMPLETION_HELLO, line:full_source()))
 				end
 			end
-			return self.stopped
+			return nil
 		end,
 		ensure_stopped = function(self, context)
-			ensure_segment_state(self)
+			M.ensure_completion_state(self)
 			if self._done_emitted then
 				return self.stopped
 			end
@@ -168,7 +167,7 @@ function M.build_segment(define)
 			line:run(M.completion_run(M.COMPLETION_DONE, line:full_source()))
 			return self.stopped
 		end,
-		handler = function(run)
+			handler = function(run)
 			if not M.is_completion_protocol(run) then
 				return run.input
 			end
@@ -177,14 +176,19 @@ function M.build_segment(define)
 				return run.input
 			end
 
-			local state = ensure_segment_state(run.segment)
+			local state = M.ensure_completion_state(run.segment)
 			local applied = M.apply(state, run)
 			if not applied then
 				return run.input
 			end
 
-			if state.settled and type(state.stopped) == "table" and not state.stopped:is_resolved() then
-				state.stopped:resolve(state)
+			if state.settled then
+				if type(state.stopped) == "table" and not state.stopped:is_resolved() then
+					state.stopped:resolve(state)
+				end
+				if run.line and type(run.line.done) == "table" and not run.line.done:is_resolved() then
+					run.line.done:resolve(state)
+				end
 			end
 
 			return nil

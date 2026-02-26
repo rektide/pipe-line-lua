@@ -14,9 +14,10 @@ describe("termichatter.protocol", function()
 
 	it("applies completion state from protocol runs", function()
 		local state = {}
-		assert.is_nil(state.settled)
-		assert.is_nil(state.signal)
-		assert.is_nil(state.name)
+		state = protocol.completion.ensure_completion_state(state)
+		assert.is_false(state.settled)
+		assert.is_not_nil(state.stopped)
+		assert.is_function(state.stopped.await)
 
 		assert.is_false(protocol.completion.apply(state, { random = true }))
 
@@ -32,6 +33,17 @@ describe("termichatter.protocol", function()
 		assert.are.equal(1, state.hello)
 		assert.are.equal(1, state.done)
 		assert.is_true(state.settled)
+	end)
+
+	it("ensure_completion_state initializes sparse payloads", function()
+		local state = { done = 4 }
+		state = protocol.completion.ensure_completion_state(state)
+
+		assert.are.equal(0, state.hello)
+		assert.are.equal(4, state.done)
+		assert.is_false(state.settled)
+		assert.is_not_nil(state.stopped)
+		assert.is_function(state.stopped.resolve)
 	end)
 
 	it("provides signal-specific helpers", function()
@@ -53,7 +65,7 @@ describe("termichatter.protocol", function()
 			process_protocol = true,
 			ensure_prepared = function(self, context)
 				if not context.line.completion_state then
-					context.line.completion_state = {}
+					context.line.completion_state = protocol.completion.ensure_completion_state({})
 				end
 			end,
 			handler = function(run)
