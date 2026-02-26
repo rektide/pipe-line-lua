@@ -15,6 +15,7 @@ M.is_mpsc_handoff = mpsc.is_mpsc_handoff
 
 --- Timestamper segment: add hrtime timestamp
 M.timestamper = M.define({
+	type = "timestamper",
 	wants = {},
 	emits = { "time" },
 	---@param run table The run context
@@ -32,6 +33,7 @@ M.timestamper = M.define({
 
 --- CloudEvent enricher segment: add id, source, type, specversion
 M.cloudevent = M.define({
+	type = "cloudevent",
 	wants = {},
 	emits = { "cloudevent" },
 	---@param run table The run context
@@ -65,6 +67,7 @@ M.cloudevent = M.define({
 --- Module filter segment: filter by source pattern
 --- Returns false to stop pipeline, input to continue
 M.module_filter = M.define({
+	type = "module_filter",
 	wants = {},
 	emits = {},
 	handler = function(run)
@@ -101,6 +104,7 @@ M.module_filter = M.define({
 --- Level filter segment: filter by log level
 --- Returns false to stop pipeline
 M.level_filter = M.define({
+	type = "level_filter",
 	wants = {},
 	emits = {},
 	handler = function(run)
@@ -126,6 +130,7 @@ M.level_filter = M.define({
 
 --- Ingester segment: apply custom decoration
 M.ingester = M.define({
+	type = "ingester",
 	wants = {},
 	emits = {},
 	handler = function(run)

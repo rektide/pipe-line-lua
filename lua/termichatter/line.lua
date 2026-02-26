@@ -31,16 +31,68 @@ local function shallow_copy(input)
 	return out
 end
 
-local function resolve_pipe_segment(line, pos, materialize_factory)
-	local seg = line.pipe[pos]
-	if type(seg) ~= "string" then
+local function next_segment_id(line)
+	line._segment_id_counter = (line._segment_id_counter or 0) + 1
+	return string.format("seg-%08x-%04x", math.floor(vim.uv.hrtime() % 0xffffffff), line._segment_id_counter)
+end
+
+local function ensure_segment_identity(line, seg, fallback_type)
+	if type(seg) ~= "table" then
 		return seg
 	end
 
+	if rawget(seg, "type") == nil and fallback_type ~= nil then
+		seg.type = fallback_type
+	elseif rawget(seg, "type") == nil then
+		seg.type = "segment"
+	end
+	if line.auto_id ~= false and rawget(seg, "id") == nil then
+		seg.id = next_segment_id(line)
+	end
+
+	return seg
+end
+
+local function instantiate_segment(line, prototype, fallback_type)
+	if type(prototype) ~= "table" then
+		return prototype
+	end
+
+	local instance
+	if line.auto_fork ~= false and type(prototype.fork) == "function" then
+		instance = prototype:fork({ line = line, type = fallback_type })
+	end
+
+	if (type(instance) ~= "table" or instance == prototype) and line.auto_instance ~= false then
+		instance = setmetatable({}, { __index = prototype })
+	end
+
+	if type(instance) ~= "table" then
+		return prototype
+	end
+
+	instance._termichatter_line = line
+	instance._termichatter_is_instance = true
+
+	return ensure_segment_identity(line, instance, fallback_type)
+end
+
+local function resolve_pipe_segment(line, pos, materialize_factory)
+	local seg = line.pipe[pos]
+	if type(seg) ~= "string" then
+		if type(seg) == "table" and rawget(seg, "_termichatter_line") ~= line then
+			seg = instantiate_segment(line, seg, seg.type)
+			line.pipe[pos] = seg
+		end
+		return ensure_segment_identity(line, seg)
+	end
+
+	local segment_name = seg
 	local resolved = line:resolve_segment(seg)
 	if util.is_segment_factory(resolved) then
 		if materialize_factory then
 			seg = resolved.create()
+			seg = ensure_segment_identity(line, seg, segment_name)
 			line.pipe[pos] = seg
 			return seg
 		end
@@ -48,6 +100,20 @@ local function resolve_pipe_segment(line, pos, materialize_factory)
 	end
 
 	if resolved ~= nil then
+		if type(resolved) == "table" then
+			if line.auto_fork == false and line.auto_instance == false then
+				return resolved
+			end
+			line._segment_instances = line._segment_instances or {}
+			line._segment_instance_sources = line._segment_instance_sources or {}
+			seg = line._segment_instances[pos]
+			if seg == nil or line._segment_instance_sources[pos] ~= resolved then
+				seg = instantiate_segment(line, resolved, segment_name)
+				line._segment_instances[pos] = seg
+				line._segment_instance_sources[pos] = resolved
+			end
+			return seg
+		end
 		return resolved
 	end
 
@@ -55,18 +121,27 @@ local function resolve_pipe_segment(line, pos, materialize_factory)
 end
 
 local function call_segment_init(line, pos)
-	local seg = resolve_pipe_segment(line, pos, false)
+	line._segment_init_done = line._segment_init_done or {}
+	if line._segment_init_done[pos] then
+		return
+	end
+
+	local seg = resolve_pipe_segment(line, pos, true)
 	if type(seg) ~= "table" or type(seg.init) ~= "function" then
 		return
 	end
 
-	seg:init({
+	local awaited = seg:init({
 		line = line,
 		pos = pos,
 		segment = seg,
 		done = line.done,
 		stopped = line.stopped,
 	})
+	if awaited ~= nil and rawget(seg, "stopped") == nil then
+		seg.stopped = awaited
+	end
+	line._segment_init_done[pos] = true
 end
 
 function LINE_MT.__index(self, key)
@@ -151,6 +226,36 @@ function Line:run(config)
 	return Run(self, config)
 end
 
+--- Select segments from this line by type or predicate.
+---@param selector? string|function Segment type name or predicate
+---@param opts? table { materialize?: boolean }
+---@return table[] segments Selected segment instances
+function Line:select_segments(selector, opts)
+	opts = opts or {}
+	local materialize = opts.materialize ~= false
+	local selected = {}
+
+	for pos = 1, #self.pipe do
+		local seg = resolve_pipe_segment(self, pos, materialize)
+		if type(seg) == "table" then
+			local include = false
+			if selector == nil then
+				include = true
+			elseif type(selector) == "string" then
+				include = seg.type == selector
+			elseif type(selector) == "function" then
+				include = selector(seg, { line = self, pos = pos }) == true
+			end
+
+			if include then
+				table.insert(selected, seg)
+			end
+		end
+	end
+
+	return selected
+end
+
 --- Ensure segments are prepared for execution.
 --- Calls ensure_prepared(context) on each segment that exposes it.
 --- This is safe to call repeatedly; segment hooks should be idempotent.
@@ -185,6 +290,9 @@ local function stop_prepared_segments(line)
 	local tasks = {}
 	for pos = 1, #line.pipe do
 		local seg = resolve_pipe_segment(line, pos, false)
+		if type(seg) == "table" then
+			cooputil.collect_awaitables(seg.stopped, tasks)
+		end
 
 		if type(seg) == "table" and type(seg.ensure_stopped) == "function" then
 			local awaited = seg:ensure_stopped({
@@ -350,6 +458,13 @@ end
 ---@return table pipe The updated pipe
 function Line:spliceSegment(pos, delete_count, ...)
 	self.pipe:splice(pos, delete_count, ...)
+	self._segment_instances = nil
+	self._segment_instance_sources = nil
+	self._segment_init_done = nil
+	local inserted_count = select("#", ...)
+	for offset = 0, inserted_count - 1 do
+		call_segment_init(self, pos + offset)
+	end
 	return self.pipe
 end
 
@@ -381,7 +496,6 @@ function Line:addSegment(segment, handler_or_pos, pos)
 
 	insert_pos = insert_pos or (#self.pipe + 1)
 	self:spliceSegment(insert_pos, 0, inserted)
-	call_segment_init(self, insert_pos)
 	return inserted
 end
 
@@ -392,8 +506,7 @@ end
 function Line:addHandoff(pos, config)
 	local handoff = segment.mpsc_handoff(config)
 	pos = pos or (#self.pipe + 1)
-	self.pipe:splice(pos, 0, handoff)
-	call_segment_init(self, pos)
+	self:spliceSegment(pos, 0, handoff)
 	return handoff
 end
 
@@ -418,6 +531,24 @@ local function new_line(config)
 		instance.stopped = config.stopped
 	else
 		instance.stopped = done.create_deferred()
+	end
+
+	if config.auto_id ~= nil then
+		instance.auto_id = config.auto_id
+	elseif not parent then
+		instance.auto_id = true
+	end
+
+	if config.auto_fork ~= nil then
+		instance.auto_fork = config.auto_fork
+	elseif not parent then
+		instance.auto_fork = true
+	end
+
+	if config.auto_instance ~= nil then
+		instance.auto_instance = config.auto_instance
+	elseif not parent then
+		instance.auto_instance = true
 	end
 
 	if parent then
@@ -453,7 +584,16 @@ local function new_line(config)
 	end
 
 	for k, v in pairs(config) do
-		if k ~= "parent" and k ~= "pipe" and k ~= "output" and k ~= "fact" and k ~= "sourcer" and k ~= "done" and k ~= "stopped" then
+		if k ~= "parent"
+			and k ~= "pipe"
+			and k ~= "output"
+			and k ~= "fact"
+			and k ~= "sourcer"
+			and k ~= "done"
+			and k ~= "stopped"
+			and k ~= "auto_id"
+			and k ~= "auto_fork"
+			and k ~= "auto_instance" then
 			instance[k] = v
 		end
 	end

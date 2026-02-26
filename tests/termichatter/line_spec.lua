@@ -47,6 +47,88 @@ describe("termichatter.line", function()
 			assert.is_function(line.debug)
 			assert.is_function(line.trace)
 		end)
+
+		it("select_segments picks by type with unique ids", function()
+			local segment = require("termichatter.segment")
+			local line = Line({ registry = registry, pipe = { segment.completion, segment.completion } })
+			local selected = line:select_segments("completion")
+
+			assert.are.equal(2, #selected)
+			assert.are.equal("completion", selected[1].type)
+			assert.are.equal("completion", selected[2].type)
+			assert.are_not.equal(selected[1], selected[2])
+			assert.are_not.equal(selected[1].id, selected[2].id)
+		end)
+
+		it("select_segments supports predicate selector", function()
+			local segment = require("termichatter.segment")
+			local line = Line({ registry = registry, pipe = { segment.completion, segment.timestamper } })
+			local selected = line:select_segments(function(seg)
+				return seg.type == "timestamper"
+			end)
+
+			assert.are.equal(1, #selected)
+			assert.are.equal("timestamper", selected[1].type)
+		end)
+
+		it("auto_id false skips id assignment", function()
+			local segment = require("termichatter.segment")
+			local line = Line({
+				registry = registry,
+				pipe = { segment.completion },
+				auto_id = false,
+			})
+
+			local selected = line:select_segments("completion")
+			assert.are.equal(1, #selected)
+			assert.is_nil(selected[1].id)
+		end)
+
+		it("auto_fork false avoids prototype fork", function()
+			local fork_calls = 0
+			registry:register("forkable", {
+				type = "forkable",
+				fork = function(self, context)
+					fork_calls = fork_calls + 1
+					return {
+						type = self.type,
+						from_fork = true,
+						handler = function(run) return run.input end,
+					}
+				end,
+				handler = function(run)
+					return run.input
+				end,
+			})
+
+			local line = Line({ registry = registry, pipe = { "forkable" }, auto_fork = false })
+			local selected = line:select_segments("forkable")
+
+			assert.are.equal(1, #selected)
+			assert.are.equal(0, fork_calls)
+			assert.is_nil(rawget(selected[1], "from_fork"))
+		end)
+
+		it("auto_instance false keeps shared prototype when not forking", function()
+			local plain = {
+				type = "plain",
+				handler = function(run)
+					return run.input
+				end,
+			}
+			registry:register("plain", plain)
+
+			local line = Line({
+				registry = registry,
+				pipe = { "plain" },
+				auto_instance = false,
+				auto_fork = false,
+			})
+
+			local selected = line:select_segments("plain")
+			assert.are.equal(1, #selected)
+			assert.are.equal(plain, selected[1])
+		end)
 	end)
 
 	describe("child", function()
