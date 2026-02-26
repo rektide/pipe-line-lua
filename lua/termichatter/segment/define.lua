@@ -9,7 +9,7 @@ function M.define(spec)
 	local handler = spec.handler
 
 	spec.handler = function(run)
-		if protocol.completion.is_protocol(run) and not process_protocol then
+		if protocol.is_protocol(run) and not process_protocol then
 			if pass_protocol then
 				return nil
 			end
