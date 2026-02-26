@@ -1,5 +1,6 @@
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
-local util = require("termichatter.util")
+local define = require("termichatter.segment.define")
+local mpsc_define = require("termichatter.segment.define.mpsc")(define)
 
 local M = {}
 
@@ -19,39 +20,15 @@ end
 ---@return table segment
 function M.mpsc_handoff(config)
 	config = config or {}
-	local queue = config.queue or MpscQueue.new()
-	local handoff = {
+	return mpsc_define({
 		type = "mpsc_handoff",
-		queue = queue,
+		queue = config.queue or MpscQueue.new(),
 		strategy = config.strategy or "self",
+		handoff_field = M.HANDOFF_FIELD,
+		continuation_owner = "mpsc_handoff",
 		wants = {},
 		emits = {},
-		ensure_prepared = function(self, context)
-			local line = context and context.line
-			if not line then
-				return
-			end
-			if context.force ~= true and line.autoStartConsumers == false then
-				return
-			end
-			require("termichatter.consumer").ensure_queue_consumer(line, self.queue)
-		end,
-		ensure_stopped = function(self, context)
-			local line = context and context.line
-			if not line then
-				return
-			end
-			return require("termichatter.consumer").stop_queue_consumer(line, self.queue)
-		end,
-	}
-
-	handoff.handler = function(run)
-		local continuation = util.continuation_for_strategy(run, handoff.strategy, run.input, "mpsc_handoff")
-		queue:push({ [M.HANDOFF_FIELD] = continuation })
-		return false
-	end
-
-	return handoff
+	})
 end
 
 ---@param seg any
