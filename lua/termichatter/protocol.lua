@@ -27,9 +27,9 @@ function M.isShutdown(msg)
 end
 
 --- Create a completion tracker for reference counting hello/done pair
----@param outputQueue? table the queue to push shutdown signal to
+---@param output? table the queue to push shutdown signal to
 ---@return table tracker with hello(), done(), and count() method
-function M.createTracker(outputQueue)
+function M.createTracker(output)
 	local helloCount = 0
 	local doneCount = 0
 	local shutdownEmitted = false
@@ -43,8 +43,8 @@ function M.createTracker(outputQueue)
 			doneCount = doneCount + 1
 			if doneCount >= helloCount and not shutdownEmitted then
 				shutdownEmitted = true
-				if outputQueue then
-					outputQueue:push(vim.deepcopy(M.shutdown))
+				if output then
+					output:push(vim.deepcopy(M.shutdown))
 				end
 				return true
 			end
