@@ -306,28 +306,73 @@ local function stop_prepared_segments(line)
 	return tasks
 end
 
---- Return a deferred that settles when currently matching segment.stopped
---- awaitables resolve.
+--- Return a deferred that settles when matching segment.stopped awaitables
+--- (including new ones discovered in later selector passes) resolve.
 ---@param selector? string|function Segment type or predicate
 ---@return table stopped_live Deferred with await()
 function Line:stopped_live(selector)
 	local stopped_live = done.create_deferred()
-	local tasks = {}
-	local selected = self:select_segments(selector)
-	for _, seg in ipairs(selected) do
-		cooputil.collect_awaitables(seg.stopped, tasks)
+	local seen = {}
+	local step_scheduled = false
+
+	local function line_is_stopped()
+		return type(self.stopped) == "table"
+			and type(self.stopped.is_resolved) == "function"
+			and self.stopped:is_resolved()
 	end
 
-	if type(self.stopped) == "table" and not self.stopped:is_resolved() then
-		table.insert(tasks, self.stopped)
+	local function collect_new_batch()
+		local batch = {}
+		local selected = self:select_segments(selector)
+		for _, seg in ipairs(selected) do
+			local collected = cooputil.collect_awaitables(seg.stopped)
+			for _, awaited in ipairs(collected) do
+				if not seen[awaited] then
+					seen[awaited] = true
+					table.insert(batch, awaited)
+				end
+			end
+		end
+		return batch
 	end
 
-	local task = coop.spawn(function()
-		cooputil.await_all(tasks)
-		stopped_live:resolve({ stopped = true, source = self:full_source() })
-	end)
+	local function schedule_step(delay)
+		if stopped_live:is_resolved() or step_scheduled then
+			return
+		end
+		step_scheduled = true
+		vim.defer_fn(function()
+			step_scheduled = false
 
-	stopped_live.task = task
+			if stopped_live:is_resolved() then
+				return
+			end
+
+			local batch = collect_new_batch()
+			if #batch > 0 then
+				coop.spawn(function()
+					cooputil.await_all(batch)
+					schedule_step(0)
+				end)
+				return
+			end
+
+			if line_is_stopped() then
+				stopped_live:resolve({ stopped = true, source = self:full_source() })
+				return
+			end
+
+			schedule_step(25)
+		end, delay or 0)
+	end
+
+	if type(self.stopped) == "table" and type(self.stopped.on_resolve) == "function" then
+		self.stopped:on_resolve(function()
+			schedule_step(0)
+		end)
+	end
+
+	schedule_step(0)
 	return stopped_live
 end
 
