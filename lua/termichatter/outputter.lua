@@ -1,8 +1,18 @@
 --- Outputter: destination for processed message
-local protocol = require("termichatter.protocol")
 local util = require("termichatter.util")
+local coop = require("coop")
 
 local M = {}
+
+local function is_task_active(task)
+	if not task then
+		return false
+	end
+	if type(task.status) == "function" then
+		return task:status() ~= "dead"
+	end
+	return true
+end
 
 --- Buffer outputter: write to nvim buffer
 ---@param config table { bufnr?: number, n?: number, name?: string, format?: function, inspect?: function, queue?: table }
@@ -53,13 +63,25 @@ function M.buffer(config)
 				if not msg then
 					break
 				end
-				if protocol.is_shutdown_payload(msg) then
-					break
-				end
-				if not protocol.is_completion_payload(msg) then
-					self:write(msg)
-				end
+				self:write(msg)
 			end
+		end
+
+		function out:start_async()
+			if is_task_active(self._task) then
+				return self._task
+			end
+			self._task = coop.spawn(function()
+				self:start()
+			end)
+			return self._task
+		end
+
+		function out:stop()
+			if is_task_active(self._task) then
+				self._task:cancel()
+			end
+			self._task = nil
 		end
 	end
 
@@ -147,13 +169,25 @@ function M.fanout(config)
 				if not msg then
 					break
 				end
-				if protocol.is_shutdown_payload(msg) then
-					break
-				end
-				if not protocol.is_completion_payload(msg) then
-					self:write(msg)
-				end
+				self:write(msg)
 			end
+		end
+
+		function out:start_async()
+			if is_task_active(self._task) then
+				return self._task
+			end
+			self._task = coop.spawn(function()
+				self:start()
+			end)
+			return self._task
+		end
+
+		function out:stop()
+			if is_task_active(self._task) then
+				self._task:cancel()
+			end
+			self._task = nil
 		end
 	end
 

@@ -42,14 +42,18 @@ describe("termichatter integration", function()
 			app:debug("Debug info here")
 			app:error("Something went wrong")
 
-			app.output:push(termichatter.protocol.done)
-
-			outTask:await(200, 10)
-
 			vim.wait(100, function()
 				local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 				return #lines >= 3
 			end, 10)
+
+			outTask:cancel()
+			local out_ok, out_err = pcall(function()
+				outTask:await(200, 10)
+			end)
+			if not out_ok and not tostring(out_err):match("cancelled") then
+				error(out_err, 0)
+			end
 
 			local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 			local content = table.concat(lines, "\n")
@@ -94,17 +98,14 @@ describe("termichatter integration", function()
 		end)
 	end)
 
-	describe("multiple producers single consumer", function()
+		describe("multiple producers single consumer", function()
 		it("handles concurrent logging from multiple logger", function()
 			local app = termichatter()
 			local received = {}
 
 			local consumerTask = coop.spawn(function()
-				for _ = 1, 10 do
+				for _ = 1, 9 do
 					local msg = app.output:pop()
-					if msg.type == "termichatter.completion.done" then
-						break
-					end
 					table.insert(received, msg)
 				end
 			end)
@@ -118,8 +119,6 @@ describe("termichatter integration", function()
 				modB:info("from B")
 				modC:info("from C")
 			end
-
-			app.output:push(termichatter.protocol.done)
 
 			consumerTask:await(300, 10)
 
@@ -166,9 +165,18 @@ describe("termichatter integration", function()
 
 			inputQ:push({ message = "broadcast 1" })
 			inputQ:push({ message = "broadcast 2" })
-			inputQ:push({ type = "termichatter.shutdown" })
 
-			task:await(200, 10)
+			vim.wait(100, function()
+				return #buffer1 >= 2 and #buffer2 >= 2
+			end, 10)
+
+			task:cancel()
+			local ok, err = pcall(function()
+				task:await(200, 10)
+			end)
+			if not ok and not tostring(err):match("cancelled") then
+				error(err, 0)
+			end
 
 			assert.are.equal(2, #buffer1)
 			assert.are.equal(2, #buffer2)

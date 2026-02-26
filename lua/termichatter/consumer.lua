@@ -1,7 +1,6 @@
 --- Consumer: async driver for mpsc_handoff segment
 --- Drives explicit queue boundary segments in a line
 local coop = require("coop")
-local protocol = require("termichatter.protocol")
 local segment = require("termichatter.segment")
 local util = require("termichatter.util")
 
@@ -28,22 +27,14 @@ function M.make_consumer(queue)
 				break
 			end
 
-			if protocol.is_shutdown_payload(msg) then
-				break
-			end
-
-			if protocol.is_completion_payload(msg) then
-				-- ignore completion signals on internal handoff queue
-			else
-				if type(msg) == "table" and msg[segment.HANDOFF_FIELD] then
-					local continuation = msg[segment.HANDOFF_FIELD]
-					if type(continuation) ~= "table" or type(continuation.next) ~= "function" then
-						error("invalid mpsc_handoff continuation payload", 0)
-					end
-					continuation:next()
-				else
-					error("invalid mpsc queue payload; expected handoff continuation or protocol signal", 0)
+			if type(msg) == "table" and msg[segment.HANDOFF_FIELD] then
+				local continuation = msg[segment.HANDOFF_FIELD]
+				if type(continuation) ~= "table" or type(continuation.next) ~= "function" then
+					error("invalid mpsc_handoff continuation payload", 0)
 				end
+				continuation:next()
+			else
+				error("invalid mpsc queue payload; expected handoff continuation", 0)
 			end
 		end
 	end
