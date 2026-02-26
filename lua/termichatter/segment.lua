@@ -5,6 +5,7 @@ local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local util = require("termichatter.util")
 local logutil = require("termichatter.log")
 local protocol = require("termichatter.protocol")
+local completion = require("termichatter.segment.completion")
 
 M.HANDOFF_FIELD = "__termichatter_handoff_run"
 
@@ -19,7 +20,7 @@ function M.define(spec)
 	local handler = spec.handler
 
 	spec.handler = function(run)
-		if protocol.is_protocol(run) and not process_protocol then
+		if protocol.completion.is_protocol(run) and not process_protocol then
 			if pass_protocol then
 				return nil
 			end
@@ -171,59 +172,7 @@ M.ingester = M.define({
 	end,
 })
 
---- Completion segment: track mpsc completion protocol on the line.
-M.completion = M.define({
-	type = "completion",
-	process_protocol = true,
-	wants = {},
-	emits = {},
-	ensure_prepared = function(self, context)
-		local line = context and context.line
-		if not line then
-			return
-		end
-
-		if type(line.done) ~= "table" or type(line.done.resolve) ~= "function" then
-			line.done = protocol.create_deferred()
-		end
-
-		if type(line._completion_state) ~= "table" then
-			line._completion_state = protocol.create_completion_state()
-		end
-	end,
-	handler = function(run)
-		if not protocol.is_completion_protocol(run) then
-			return run.input
-		end
-
-		local line = run.line
-		if not line then
-			return run.input
-		end
-
-		local state = line._completion_state
-		if not state then
-			state = protocol.create_completion_state()
-			line._completion_state = state
-		end
-
-		local status = protocol.query_completion(state, run)
-		if not status then
-			return run.input
-		end
-
-		if not state.resolved and status.settled and type(line.done) == "table" then
-			state.resolved = true
-			line.done:resolve({
-				hello = status.hello,
-				done = status.done,
-				signal = status.signal,
-			})
-		end
-
-		return nil
-	end,
-})
+M.completion = completion.build_segment(M.define)
 
 --- mpsc_handoff segment factory: enqueue continuation run and stop current run
 ---@param config? table { queue?: table, strategy?: 'self'|'clone'|'fork' }

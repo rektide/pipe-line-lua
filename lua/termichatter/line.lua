@@ -202,9 +202,9 @@ function Line:close()
 		self._close_sent = true
 		local has_completion = has_completion_segment(self)
 		if has_completion then
-			self:run(protocol.completion_run(protocol.COMPLETION_DONE, self:full_source()))
+			self:run(protocol.completion.completion_run(protocol.completion.COMPLETION_DONE, self:full_source()))
 		else
-			self.done:resolve({ hello = 0, done = 1, signal = protocol.COMPLETION_DONE })
+			self.done:resolve({ hello = 0, done = 1, signal = protocol.completion.COMPLETION_DONE })
 		end
 	end
 

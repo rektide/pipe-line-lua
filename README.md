@@ -335,8 +335,8 @@ Implements the [mpsc-completion](https://github.com/rektide/mpsc-completion) pro
 local protocol = require("termichatter.protocol")
 
 -- Build protocol runs (control is on run fields, not input)
-local hello = protocol.completion_run("hello", "worker:a")
-local done = protocol.completion_run("done", "worker:a")
+local hello = protocol.completion.completion_run("hello", "worker:a")
+local done = protocol.completion.completion_run("done", "worker:a")
 
 -- Send lifecycle control through the pipeline
 app:run(hello)
@@ -346,8 +346,8 @@ app:run(done)
 local settled = app:close():await(500, 10)
 
 -- Or run protocol query logic yourself in custom segments
-local state = protocol.create_completion_state()
-local status = protocol.query_completion(state, protocol.completion_run("hello", "worker:a"))
+local state = protocol.completion.create_completion_state()
+local status = protocol.completion.query_completion(state, protocol.completion.completion_run("hello", "worker:a"))
 if status and status.settled then
     -- your custom completion behavior
 end
