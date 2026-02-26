@@ -63,6 +63,59 @@ local function queue_for_segment(line, pos)
 	return nil
 end
 
+--- Ensure there is a running consumer task for a specific queue.
+---@param line table The owning line
+---@param queue table The handoff queue
+---@return table task The active consumer task
+function M.ensure_queue_consumer(line, queue)
+	line._consumer_task = line._consumer_task or {}
+	line._consumer_task_by_queue = line._consumer_task_by_queue or {}
+
+	local task = line._consumer_task_by_queue[queue]
+	if not is_task_active(task) then
+		local consumer_fn = M.make_consumer(queue)
+		task = coop.spawn(consumer_fn)
+		line._consumer_task_by_queue[queue] = task
+	end
+
+	local active_task_list = {}
+	for q, t in pairs(line._consumer_task_by_queue) do
+		if is_task_active(t) then
+			table.insert(active_task_list, t)
+		else
+			line._consumer_task_by_queue[q] = nil
+		end
+	end
+	line._consumer_task = active_task_list
+
+	return task
+end
+
+--- Stop consumer task for a specific queue.
+---@param line table The owning line
+---@param queue table The handoff queue
+function M.stop_queue_consumer(line, queue)
+	if not line._consumer_task_by_queue then
+		return
+	end
+
+	local task = line._consumer_task_by_queue[queue]
+	if task and is_task_active(task) then
+		task:cancel()
+	end
+	line._consumer_task_by_queue[queue] = nil
+
+	local active_task_list = {}
+	for q, t in pairs(line._consumer_task_by_queue) do
+		if is_task_active(t) then
+			table.insert(active_task_list, t)
+		else
+			line._consumer_task_by_queue[q] = nil
+		end
+	end
+	line._consumer_task = active_task_list
+end
+
 --- Start consumer for all explicit async queue boundaries in a line
 ---@param line table The line to start consumer for
 ---@return table[] task Array of spawned task
@@ -75,13 +128,7 @@ function M.start_consumer(line)
 		local queue = queue_for_segment(line, i)
 		if queue and not seen_queue[queue] then
 			seen_queue[queue] = true
-			local existing_task = line._consumer_task_by_queue[queue]
-			if not is_task_active(existing_task) then
-				local consumer_fn = M.make_consumer(queue)
-				local task = coop.spawn(consumer_fn)
-				line._consumer_task_by_queue[queue] = task
-				table.insert(line._consumer_task, task)
-			end
+			M.ensure_queue_consumer(line, queue)
 		end
 	end
 

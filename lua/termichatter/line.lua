@@ -2,9 +2,9 @@
 --- Holds a pipe, registry, output, config. Methods on shared prototype.
 local inherit = require("termichatter.inherit")
 local Pipe = require("termichatter.pipe")
-local consumer = require("termichatter.consumer")
 local segment = require("termichatter.segment")
 local logutil = require("termichatter.log")
+local util = require("termichatter.util")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 local Line = {}
@@ -106,10 +106,64 @@ end
 ---@return table run The Run instance
 function Line:run(config)
 	local Run = require("termichatter.run")
-	if self.autoStartConsumers ~= false then
-		consumer.start_consumer(self)
-	end
 	return Run(self, config)
+end
+
+--- Prepare segments for execution.
+--- Calls ensure_prepared(context) on each segment that exposes it.
+--- This is safe to call repeatedly; segment hooks should be idempotent.
+---@return table line
+function Line:prepare_segments()
+	for pos = 1, #self.pipe do
+		local seg = self.pipe[pos]
+		if type(seg) == "string" then
+			local resolved = self:resolve_segment(seg)
+			if util.is_segment_factory(resolved) then
+				seg = resolved.create()
+				self.pipe[pos] = seg
+			elseif resolved ~= nil then
+				seg = resolved
+			end
+		end
+
+		if type(seg) == "table" and type(seg.ensure_prepared) == "function" then
+			seg:ensure_prepared({
+				line = self,
+				pos = pos,
+				segment = seg,
+				force = true,
+			})
+		end
+	end
+
+	return self
+end
+
+--- Stop prepared segments.
+--- Calls ensure_stopped(context) on each segment that exposes it.
+--- This is safe to call repeatedly; segment hooks should be idempotent.
+---@return table line
+function Line:stop_segments()
+	for pos = 1, #self.pipe do
+		local seg = self.pipe[pos]
+		if type(seg) == "string" then
+			local resolved = self:resolve_segment(seg)
+			if resolved ~= nil and not util.is_segment_factory(resolved) then
+				seg = resolved
+			end
+		end
+
+		if type(seg) == "table" and type(seg.ensure_stopped) == "function" then
+			seg:ensure_stopped({
+				line = self,
+				pos = pos,
+				segment = seg,
+				force = true,
+			})
+		end
+	end
+
+	return self
 end
 
 --- Create a thin child line inheriting from this one.
@@ -238,17 +292,6 @@ function Line:addHandoff(pos, config)
 	pos = pos or (#self.pipe + 1)
 	self.pipe:splice(pos, 0, handoff)
 	return handoff
-end
-
---- Start async consumer for all mpsc_handoff segments.
----@return table[] task Array of spawned task
-function Line:startConsumer()
-	return consumer.start_consumer(self)
-end
-
---- Stop all async consumer.
-function Line:stopConsumer()
-	consumer.stop_consumer(self)
 end
 
 --- Construct a new Line.

@@ -108,10 +108,10 @@ M.level_filter = {
 	emits = {},
 	handler = function(run)
 	local input = run.input
-	local minLevel = logutil.resolve_level(
-		run.minLevel or (run.line and run.line.minLevel),
+	local maxLevel = logutil.resolve_level(
+		run.max_level or (run.line and run.line.max_level),
 		math.huge,
-		"minLevel"
+		"max_level"
 	)
 
 	if type(input) ~= "table" then
@@ -119,7 +119,7 @@ M.level_filter = {
 	end
 
 	local level = logutil.resolve_level(input.level, math.huge, "payload level")
-	if level <= minLevel then
+	if level <= maxLevel then
 		return input
 	end
 
@@ -155,6 +155,23 @@ function M.mpsc_handoff(config)
 		strategy = config.strategy or "self",
 		wants = {},
 		emits = {},
+		ensure_prepared = function(self, context)
+			local line = context and context.line
+			if not line then
+				return
+			end
+			if context.force ~= true and line.autoStartConsumers == false then
+				return
+			end
+			require("termichatter.consumer").ensure_queue_consumer(line, self.queue)
+		end,
+		ensure_stopped = function(self, context)
+			local line = context and context.line
+			if not line then
+				return
+			end
+			require("termichatter.consumer").stop_queue_consumer(line, self.queue)
+		end,
 	}
 
 	handoff.handler = function(run)

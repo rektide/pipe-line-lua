@@ -515,13 +515,13 @@ const moduleFilter = (
   })
 ```
 
-### Priority Filter
+### Level Filter
 
 ```typescript
-const priorityFilter = (minLevel: number): Pipe<LogElement, LogElement> => (input) =>
+const levelFilter = (maxLevel: number): Pipe<LogElement, LogElement> => (input) =>
   Effect.sync(() => {
-    const level = input.priorityLevel ?? 0
-    return level >= minLevel ? Option.some(input) : Option.none()
+    const level = input.level ?? Number.POSITIVE_INFINITY
+    return level <= maxLevel ? Option.some(input) : Option.none()
   })
 ```
 

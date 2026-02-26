@@ -113,6 +113,40 @@ describe("termichatter.line", function()
 	end)
 
 	describe("run integration", function()
+		it("prepare_segments calls ensure_prepared hooks", function()
+			local calls = 0
+			local prepared = {
+				handler = function(run) return run.input end,
+				ensure_prepared = function(self, context)
+					calls = calls + 1
+					assert.are.equal(1, context.pos)
+					assert.is_true(context.force)
+				end,
+			}
+			local line = Line({ pipe = { prepared }, registry = registry })
+
+			line:prepare_segments()
+
+			assert.are.equal(1, calls)
+		end)
+
+		it("run executes ensure_prepared hooks lazily", function()
+			local calls = 0
+			local prepared = {
+				handler = function(run) return run.input end,
+				ensure_prepared = function(self, context)
+					calls = calls + 1
+					assert.is_nil(context.force)
+					assert.is_not_nil(context.run)
+				end,
+			}
+			local line = Line({ pipe = { prepared }, registry = registry })
+
+			line:run({ input = { once = true } })
+
+			assert.are.equal(1, calls)
+		end)
+
 		it("resolves registered segments", function()
 			local called = false
 			registry:register("marker", {

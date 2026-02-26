@@ -96,6 +96,15 @@ function Run:execute()
 				seg = resolved
 			end
 		end
+
+		if type(seg) == "table" and type(seg.ensure_prepared) == "function" then
+			seg:ensure_prepared({
+				line = self.line,
+				run = self,
+				pos = self.pos,
+				segment = seg,
+			})
+		end
 		local handler = self:resolve(seg)
 		if handler then
 			local result = handler(self)

@@ -39,10 +39,33 @@ describe("termichatter.mpsc", function()
 
 		assert.are.equal("auto", out.message)
 		assert.are.same({ "auto" }, seen)
-		app:stopConsumer()
+		app:stop_segments()
 	end)
 
-	it("delays processing until explicit startConsumer when autoStartConsumers is false", function()
+	it("auto-initializes consumer when first handoff executes", function()
+		local app = termichatter()
+		local seen = {}
+
+		app:addSegment("capture", function(run)
+			table.insert(seen, run.input.message)
+			return run.input
+		end)
+		app.pipe = Pipe.new({ "mpsc_handoff", "capture" })
+
+		assert.is_nil(app._consumer_task)
+
+		app:log({ message = "first-run" })
+		local out = pop_with_timeout(app.output)
+
+		assert.are.equal("first-run", out.message)
+		assert.are.same({ "first-run" }, seen)
+		assert.is_table(app._consumer_task)
+		assert.is_true(#app._consumer_task >= 1)
+
+		app:stop_segments()
+	end)
+
+	it("delays processing until explicit prepare_segments when autoStartConsumers is false", function()
 		local app = termichatter({ autoStartConsumers = false })
 		local seen = {}
 
@@ -58,12 +81,12 @@ describe("termichatter.mpsc", function()
 		assert.is_false(app.pipe[1].queue:empty())
 		assert.are.same({}, seen)
 
-		app:startConsumer()
+		app:prepare_segments()
 		local out = pop_with_timeout(app.output)
 
 		assert.are.equal("delayed", out.message)
 		assert.are.same({ "delayed" }, seen)
-		app:stopConsumer()
+		app:stop_segments()
 	end)
 
 	it("supports manual continuation by popping handoff queue payload", function()

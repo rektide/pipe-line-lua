@@ -203,11 +203,11 @@ describe("termichatter.log", function()
 	end)
 
 	describe("level filter compatibility", function()
-		it("filters by numeric level using string minLevel config", function()
+		it("filters by numeric level using string max_level config", function()
 			local app = termichatter({
 				source = "svc",
 				pipe = { "level_filter", "ingester" },
-				minLevel = "debug",
+				max_level = "debug",
 			})
 
 			app:trace("drop me")

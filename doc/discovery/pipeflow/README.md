@@ -258,8 +258,8 @@ end
 | `line:async(pos)` | Add mpsc at position |
 | `line:resolve(name)` | Resolve pipe from registry |
 | `line:logger(config)` | Create logger with priority method |
-| `line:startConsumer()` | Start async consumer |
-| `line:stopConsumer()` | Stop async consumer |
+| `line:prepare_segments()` | Prepare/start segment runtime hooks |
+| `line:stop_segments()` | Stop prepared segment runtime hooks |
 
 ### Registry
 

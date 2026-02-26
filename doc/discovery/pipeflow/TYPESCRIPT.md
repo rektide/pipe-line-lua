@@ -192,11 +192,11 @@ interface Line<In = unknown, Out = unknown> {
   /** Create logger */
   logger(config?: LoggerConfig): Logger;
   
-  /** Start async consumer */
-  startConsumer(): ConsumerHandle[];
+  /** Prepare/start segment runtime hooks */
+  prepare_segments(): void;
   
-  /** Stop async consumer */
-  stopConsumer(): void;
+  /** Stop prepared segment runtime hooks */
+  stop_segments(): void;
 }
 
 interface LineConfig<In = unknown, Out = unknown> {
@@ -523,15 +523,14 @@ class LineImpl<In, Out> implements Line<In, Out> {
     return logFn;
   }
   
-  startConsumer(): ConsumerHandle[] {
+  prepare_segments(): void {
     this.queue.forEach((queue, pos) => {
       const handle = spawnConsumer(this, pos, queue);
       this.consumerHandle.push(handle);
     });
-    return this.consumerHandle;
   }
   
-  stopConsumer(): void {
+  stop_segments(): void {
     this.consumerHandle.forEach((h) => h.cancel());
     this.consumerHandle = [];
   }
@@ -749,21 +748,21 @@ export const moduleFilter: Pipe<Element, Element> = (
 };
 
 // level_filter.ts
-export const priorityFilter: Pipe<LogElement, LogElement> = (
+export const levelFilter: Pipe<LogElement, LogElement> = (
   input,
   line,
   _pos
 ) => {
-  const minLevel = (line.minLevel as number) ?? 0;
-  const level = input.priorityLevel ?? 0;
-  return level >= minLevel ? input : undefined;
+  const max_level = (line.max_level as number) ?? Number.POSITIVE_INFINITY;
+  const level = input.level ?? Number.POSITIVE_INFINITY;
+  return level <= max_level ? input : undefined;
 };
 
 // Register default pipe
 defaultRegistry.register("timestamper", timestamper);
 defaultRegistry.register("cloudevent", cloudevent);
 defaultRegistry.register("module_filter", moduleFilter);
-defaultRegistry.register("level_filter", priorityFilter);
+defaultRegistry.register("level_filter", levelFilter);
 ```
 
 ## Outputter

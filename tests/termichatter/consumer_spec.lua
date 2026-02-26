@@ -35,7 +35,7 @@ describe("termichatter.consumer", function()
 
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue })
-			local l = make_line({ handoff, "marker" })
+			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
 
 			local consume = consumer.make_consumer(queue)
 			local task = coop.spawn(consume)
@@ -67,7 +67,7 @@ describe("termichatter.consumer", function()
 
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue })
-			local l = make_line({ handoff, "marker" })
+			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
 			local Run = require("termichatter.run")
 
 			local r = Run.new(l, { noStart = true, input = { message = "test" } })
@@ -93,7 +93,7 @@ describe("termichatter.consumer", function()
 
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue, strategy = "clone" })
-			local l = make_line({ handoff, "marker" })
+			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
 			local Run = require("termichatter.run")
 
 			local r = Run.new(l, { noStart = true, input = { message = "test" } })
