@@ -2,6 +2,7 @@
 --- Holds a pipe, registry, output, config. Methods on shared prototype.
 local inherit = require("termichatter.inherit")
 local Pipe = require("termichatter.pipe")
+local cooputil = require("termichatter.coop")
 local segment = require("termichatter.segment")
 local logutil = require("termichatter.log")
 local done = require("termichatter.done")
@@ -28,6 +29,44 @@ local function shallow_copy(input)
 		out[k] = v
 	end
 	return out
+end
+
+local function resolve_pipe_segment(line, pos, materialize_factory)
+	local seg = line.pipe[pos]
+	if type(seg) ~= "string" then
+		return seg
+	end
+
+	local resolved = line:resolve_segment(seg)
+	if util.is_segment_factory(resolved) then
+		if materialize_factory then
+			seg = resolved.create()
+			line.pipe[pos] = seg
+			return seg
+		end
+		return resolved
+	end
+
+	if resolved ~= nil then
+		return resolved
+	end
+
+	return seg
+end
+
+local function call_segment_init(line, pos)
+	local seg = resolve_pipe_segment(line, pos, false)
+	if type(seg) ~= "table" or type(seg.init) ~= "function" then
+		return
+	end
+
+	seg:init({
+		line = line,
+		pos = pos,
+		segment = seg,
+		done = line.done,
+		stopped = line.stopped,
+	})
 end
 
 function LINE_MT.__index(self, key)
@@ -112,66 +151,58 @@ function Line:run(config)
 	return Run(self, config)
 end
 
---- Prepare segments for execution.
+--- Ensure segments are prepared for execution.
 --- Calls ensure_prepared(context) on each segment that exposes it.
 --- This is safe to call repeatedly; segment hooks should be idempotent.
----@return table line
-function Line:prepare_segments()
+---@return table[] tasks Awaitables collected from segment hooks
+function Line:ensure_prepared()
+	local tasks = {}
 	for pos = 1, #self.pipe do
-		local seg = self.pipe[pos]
-		if type(seg) == "string" then
-			local resolved = self:resolve_segment(seg)
-			if util.is_segment_factory(resolved) then
-				seg = resolved.create()
-				self.pipe[pos] = seg
-			elseif resolved ~= nil then
-				seg = resolved
-			end
-		end
+		local seg = resolve_pipe_segment(self, pos, true)
 
 		if type(seg) == "table" and type(seg.ensure_prepared) == "function" then
-			seg:ensure_prepared({
+			local awaited = seg:ensure_prepared({
 				line = self,
 				pos = pos,
 				segment = seg,
 				force = true,
 			})
+			cooputil.collect_awaitables(awaited, tasks)
 		end
 	end
 
-	return self
+	cooputil.await_all(tasks)
+	return tasks
+end
+
+--- TODO: remove this temporary alias after callsites migrate.
+---@return table[] tasks Awaitables collected from segment hooks
+function Line:prepare_segments()
+	return self:ensure_prepared()
 end
 
 local function stop_prepared_segments(line)
+	local tasks = {}
 	for pos = 1, #line.pipe do
-		local seg = line.pipe[pos]
-		if type(seg) == "string" then
-			local resolved = line:resolve_segment(seg)
-			if resolved ~= nil and not util.is_segment_factory(resolved) then
-				seg = resolved
-			end
-		end
+		local seg = resolve_pipe_segment(line, pos, false)
 
 		if type(seg) == "table" and type(seg.ensure_stopped) == "function" then
-			seg:ensure_stopped({
+			local awaited = seg:ensure_stopped({
 				line = line,
 				pos = pos,
 				segment = seg,
 				force = true,
 			})
+			cooputil.collect_awaitables(awaited, tasks)
 		end
 	end
+
+	return tasks
 end
 
 local function has_completion_segment(line)
 	for pos = 1, #line.pipe do
-		local seg = line.pipe[pos]
-		if type(seg) == "string" then
-			local resolved = line:resolve_segment(seg)
-			if resolved ~= nil and not util.is_segment_factory(resolved) then
-				seg = resolved
-			end
-		end
+		local seg = resolve_pipe_segment(line, pos, false)
 
 		if type(seg) == "table" and seg.type == "completion" then
 			return true
@@ -181,11 +212,28 @@ local function has_completion_segment(line)
 	return false
 end
 
+--- Ensure segments are stopped and resolve line.stopped when done.
+---@return table stopped Deferred stop handle with await()
+function Line:ensure_stopped()
+	if type(self.stopped) ~= "table" or type(self.stopped.resolve) ~= "function" then
+		self.stopped = done.create_deferred()
+	end
+
+	if self.stopped:is_resolved() then
+		return self.stopped
+	end
+
+	local tasks = stop_prepared_segments(self)
+	cooputil.await_all(tasks)
+	self.stopped:resolve({ stopped = true, source = self:full_source() })
+	return self.stopped
+end
+
 --- Close this line and return the completion deferred.
 --- Sends a completion done protocol run through the pipeline.
 ---@return table done Deferred completion handle with await()
 function Line:close()
-	self:prepare_segments()
+	self:ensure_prepared()
 
 	if type(self.done) ~= "table" or type(self.done.resolve) ~= "function" then
 		self.done = done.create_deferred()
@@ -194,12 +242,13 @@ function Line:close()
 	if not self._close_hooked then
 		self._close_hooked = true
 		self.done:on_resolve(function()
-			stop_prepared_segments(self)
+			self:ensure_stopped()
 		end)
 	end
 
+	local emit_done_on_close = self.emit_completion_done_on_close ~= false
 	local already_resolved = type(self.done.is_resolved) == "function" and self.done:is_resolved()
-	if not self._close_sent and not already_resolved then
+	if emit_done_on_close and not self._close_sent and not already_resolved then
 		self._close_sent = true
 		local has_completion = has_completion_segment(self)
 		if has_completion then
@@ -332,6 +381,7 @@ function Line:addSegment(segment, handler_or_pos, pos)
 
 	insert_pos = insert_pos or (#self.pipe + 1)
 	self:spliceSegment(insert_pos, 0, inserted)
+	call_segment_init(self, insert_pos)
 	return inserted
 end
 
@@ -343,6 +393,7 @@ function Line:addHandoff(pos, config)
 	local handoff = segment.mpsc_handoff(config)
 	pos = pos or (#self.pipe + 1)
 	self.pipe:splice(pos, 0, handoff)
+	call_segment_init(self, pos)
 	return handoff
 end
 
@@ -356,6 +407,18 @@ local function new_line(config)
 	local instance = {
 		type = "line",
 	}
+
+	if config.done ~= nil then
+		instance.done = config.done
+	else
+		instance.done = done.create_deferred()
+	end
+
+	if config.stopped ~= nil then
+		instance.stopped = config.stopped
+	else
+		instance.stopped = done.create_deferred()
+	end
 
 	if parent then
 		instance.parent = parent
@@ -389,19 +452,18 @@ local function new_line(config)
 		instance.sourcer = logutil.full_source
 	end
 
-	if config.done ~= nil then
-		instance.done = config.done
-	else
-		instance.done = done.create_deferred()
-	end
-
 	for k, v in pairs(config) do
-		if k ~= "parent" and k ~= "pipe" and k ~= "output" and k ~= "fact" and k ~= "sourcer" and k ~= "done" then
+		if k ~= "parent" and k ~= "pipe" and k ~= "output" and k ~= "fact" and k ~= "sourcer" and k ~= "done" and k ~= "stopped" then
 			instance[k] = v
 		end
 	end
 
 	setmetatable(instance, LINE_MT)
+	if instance.pipe then
+		for pos = 1, #instance.pipe do
+			call_segment_init(instance, pos)
+		end
+	end
 	return instance
 end
 

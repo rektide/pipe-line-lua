@@ -120,6 +120,15 @@ function M.build_segment(define)
 		process_protocol = true,
 		wants = {},
 		emits = {},
+		init = function(self, context)
+			local line = context and context.line
+			if not line then
+				return
+			end
+			if type(line.completion_state) ~= "table" then
+				line.completion_state = M.create_completion_state()
+			end
+		end,
 		ensure_prepared = function(self, context)
 			local line = context and context.line
 			if not line then

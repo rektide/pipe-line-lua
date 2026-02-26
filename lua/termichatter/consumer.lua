@@ -110,7 +110,6 @@ function M.stop_queue_consumer(line, queue)
 	if task and is_task_active(task) then
 		task:cancel()
 	end
-	await_task_stopped(task)
 	line._consumer_task_by_queue[queue] = nil
 
 	local active_task_list = {}
@@ -122,6 +121,8 @@ function M.stop_queue_consumer(line, queue)
 		end
 	end
 	line._consumer_task = active_task_list
+
+	return task
 end
 
 --- Start async consumers for all handoff queues in a line.

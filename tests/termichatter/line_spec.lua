@@ -29,6 +29,9 @@ describe("termichatter.line", function()
 			assert.is_table(line.done)
 			assert.is_function(line.done.await)
 			assert.is_function(line.done.resolve)
+			assert.is_table(line.stopped)
+			assert.is_function(line.stopped.await)
+			assert.is_function(line.stopped.resolve)
 		end)
 
 		it("uses shared level helper methods", function()
@@ -116,7 +119,7 @@ describe("termichatter.line", function()
 	end)
 
 	describe("run integration", function()
-		it("prepare_segments calls ensure_prepared hooks", function()
+		it("ensure_prepared calls ensure_prepared hooks", function()
 			local calls = 0
 			local prepared = {
 				handler = function(run) return run.input end,
@@ -124,6 +127,22 @@ describe("termichatter.line", function()
 					calls = calls + 1
 					assert.are.equal(1, context.pos)
 					assert.is_true(context.force)
+				end,
+			}
+			local line = Line({ pipe = { prepared }, registry = registry })
+
+			local tasks = line:ensure_prepared()
+
+			assert.are.equal(1, calls)
+			assert.is_table(tasks)
+		end)
+
+		it("prepare_segments aliases ensure_prepared", function()
+			local calls = 0
+			local prepared = {
+				handler = function(run) return run.input end,
+				ensure_prepared = function()
+					calls = calls + 1
 				end,
 			}
 			local line = Line({ pipe = { prepared }, registry = registry })
@@ -191,6 +210,7 @@ describe("termichatter.line", function()
 			assert.are.equal("done", resolved.signal)
 			assert.are.equal(line.completion_state, resolved)
 			assert.is_true(line.done:is_resolved())
+			assert.is_true(line.stopped:is_resolved())
 		end)
 
 		it("close is idempotent and returns same deferred", function()
@@ -215,6 +235,38 @@ describe("termichatter.line", function()
 
 			assert.is_not_nil(resolved)
 			assert.are.equal("done", resolved.signal)
+		end)
+
+		it("addSegment calls segment init with done and stopped", function()
+			local seen = {}
+			local line = Line({ registry = registry, pipe = {} })
+
+			line:addSegment({
+				type = "init_probe",
+				init = function(self, context)
+					seen.line = context.line
+					seen.done = context.done
+					seen.stopped = context.stopped
+				end,
+				handler = function(run)
+					return run.input
+				end,
+			})
+
+			assert.are.equal(line, seen.line)
+			assert.are.equal(line.done, seen.done)
+			assert.are.equal(line.stopped, seen.stopped)
+		end)
+
+		it("ensure_stopped resolves stopped deferred", function()
+			local line = Line({ registry = registry, pipe = {} })
+
+			local stopped = line:ensure_stopped()
+			local resolved = stopped:await(200, 10)
+
+			assert.are.equal(line.stopped, stopped)
+			assert.is_not_nil(resolved)
+			assert.is_true(stopped:is_resolved())
 		end)
 	end)
 

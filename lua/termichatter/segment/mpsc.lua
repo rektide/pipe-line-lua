@@ -41,7 +41,7 @@ function M.mpsc_handoff(config)
 			if not line then
 				return
 			end
-			require("termichatter.consumer").stop_queue_consumer(line, self.queue)
+			return require("termichatter.consumer").stop_queue_consumer(line, self.queue)
 		end,
 	}
 
