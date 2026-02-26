@@ -4,6 +4,7 @@ local inherit = require("termichatter.inherit")
 local Pipe = require("termichatter.pipe")
 local segment = require("termichatter.segment")
 local logutil = require("termichatter.log")
+local done = require("termichatter.done")
 local protocol = require("termichatter.protocol")
 local util = require("termichatter.util")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
@@ -187,7 +188,7 @@ function Line:close()
 	self:prepare_segments()
 
 	if type(self.done) ~= "table" or type(self.done.resolve) ~= "function" then
-		self.done = protocol.create_deferred()
+		self.done = done.create_deferred()
 	end
 
 	if not self._close_hooked then
@@ -385,7 +386,7 @@ local function new_line(config)
 	if config.done ~= nil then
 		instance.done = config.done
 	else
-		instance.done = protocol.create_deferred()
+		instance.done = done.create_deferred()
 	end
 
 	for k, v in pairs(config) do

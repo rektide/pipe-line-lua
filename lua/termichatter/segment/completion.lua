@@ -1,5 +1,6 @@
 --- Completion protocol helpers and completion segment.
 local M = {}
+local done = require("termichatter.done")
 
 M.PROTOCOL_FIELD = "termichatter_protocol"
 M.COMPLETION_FIELD = "mpsc_completion"
@@ -130,7 +131,7 @@ function M.build_segment(define)
 			end
 
 			if type(line.done) ~= "table" or type(line.done.resolve) ~= "function" then
-				line.done = require("termichatter.protocol").create_deferred()
+				line.done = done.create_deferred()
 			end
 
 			if type(line._completion_state) ~= "table" then
