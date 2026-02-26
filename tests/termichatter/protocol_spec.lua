@@ -13,8 +13,8 @@ describe("termichatter.protocol", function()
 	end)
 
 	it("applies completion state from protocol runs", function()
-		local state = protocol.completion.create_completion_state()
-		assert.is_false(state.settled)
+		local state = {}
+		assert.is_nil(state.settled)
 		assert.is_nil(state.signal)
 		assert.is_nil(state.name)
 
@@ -46,14 +46,14 @@ describe("termichatter.protocol", function()
 		assert.is_false(protocol.completion.is_completion_protocol({}))
 	end)
 
-	it("supports alternate completion handlers without resolving line.done", function()
+	it("supports alternate completion handlers without resolving segment completion", function()
 		local termichatter = require("termichatter")
 		local query_segment = termichatter.segment.define({
 			type = "query_only_completion",
 			process_protocol = true,
 			ensure_prepared = function(self, context)
 				if not context.line.completion_state then
-					context.line.completion_state = protocol.completion.create_completion_state()
+					context.line.completion_state = {}
 				end
 			end,
 			handler = function(run)
@@ -70,6 +70,8 @@ describe("termichatter.protocol", function()
 		line:run(protocol.completion.completion_run("done", "worker:a"))
 
 		assert.is_true(line.query_settled)
-		assert.is_false(line.done:is_resolved())
+		local completions = line:select_segments("query_only_completion")
+		assert.are.equal(1, #completions)
+		assert.is_nil(completions[1].stopped)
 	end)
 end)

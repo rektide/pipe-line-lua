@@ -59,6 +59,15 @@ startup:debug("Config loaded", { config = { debug = true } })
 -- Messages arrive in app.output (an mpsc queue)
 ```
 
+## More Docs
+
+- Lifecycle orchestration: [`/doc/lifecycle.md`](/doc/lifecycle.md)
+- Segment instancing and selectors: [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
+- Selector utilities and live stop waiting: [`/doc/selecting.md`](/doc/selecting.md)
+- Segment authoring and hook contracts: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
+- Async queue boundaries: [`/doc/async-handoff.md`](/doc/async-handoff.md)
+- Completion control protocol: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
+
 ## Architecture
 
 ### Line
@@ -74,11 +83,14 @@ Configuration:
 | Field | Description |
 |-------|-------------|
 | `source` | Local source segment for this line |
-| `pipe` | Array of segment name (default: timestamper, ingester, cloudevent, module_filter) |
+| `pipe` | Array of segment name (default: timestamper, ingester, cloudevent, module_filter, completion) |
 | `registry` | Segment registry (default: global registry) |
 | `output` | Output mpsc queue (default: new queue) |
 | `filter` | Pattern or function for module filtering |
 | `parent` | Parent Line for inheritance |
+| `auto_id` | Auto-assign runtime segment ids (default: true) |
+| `auto_fork` | Use segment `fork()` when available (default: true) |
+| `auto_instance` | Create thin runtime segment instances (default: true) |
 
 Child lines are thin by default and inherit from parent via metatable:
 
@@ -259,8 +271,10 @@ app:close():await(500, 10)
 local delayed = termichatter({ autoStartConsumers = false })
 delayed.pipe = require("termichatter.pipe")({ "mpsc_handoff", "cloudevent" })
 delayed:info("queued, not yet consumed")
-delayed:prepare_segments() -- begin draining handoff queues
+delayed:ensure_prepared() -- begin draining handoff queues
 ```
+
+For deeper async boundary details, see [`/doc/async-handoff.md`](/doc/async-handoff.md).
 
 ## Output
 
@@ -296,7 +310,7 @@ local bufOut = outputter.buffer({
     name = "MyLog",
     queue = app.output,
 })
-coop.spawn(function() bufOut:start() end)
+bufOut:start_async()
 
 -- Fanout to multiple destination
 local fan = outputter.fanout({
@@ -342,15 +356,19 @@ local done = protocol.completion.completion_run("done", "worker:a")
 app:run(hello)
 app:run(done)
 
--- Close returns line.done deferred
-local settled = app:close():await(500, 10)
+-- Wait for completion segment stop state by selector
+local completion_stopped = app:stopped_live("completion")
+app:close()
+local settled = completion_stopped:await(500, 10)
 
 -- Or run protocol query logic yourself in custom segments
-local state = protocol.completion.create_completion_state()
+local state = {}
 if protocol.completion.apply(state, protocol.completion.completion_run("hello", "worker:a")) and state.settled then
     -- your custom completion behavior
 end
 ```
+
+For full completion semantics and state application, see [`/doc/completion-protocol.md`](/doc/completion-protocol.md).
 
 ## Built-in Segment
 
@@ -361,7 +379,7 @@ end
 | `module_filter` | — | — | Filter by source pattern (string or function) |
 | `level_filter` | — | — | Filter by log level |
 | `ingester` | — | — | Apply custom decoration function |
-| `completion` | — | — | Track completion protocol and resolve `line.done` |
+| `completion` | — | — | Track completion protocol and resolve segment `stopped` when settled |
 | `lattice_resolver` | — | — | Dependency injection via pipeline self-rewriting |
 
 Async boundary helper:

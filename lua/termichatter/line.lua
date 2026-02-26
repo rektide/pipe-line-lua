@@ -2,11 +2,11 @@
 --- Holds a pipe, registry, output, config. Methods on shared prototype.
 local inherit = require("termichatter.inherit")
 local Pipe = require("termichatter.pipe")
+local coop = require("coop")
 local cooputil = require("termichatter.coop")
 local segment = require("termichatter.segment")
 local logutil = require("termichatter.log")
 local done = require("termichatter.done")
-local protocol = require("termichatter.protocol")
 local util = require("termichatter.util")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
@@ -135,8 +135,6 @@ local function call_segment_init(line, pos)
 		line = line,
 		pos = pos,
 		segment = seg,
-		done = line.done,
-		stopped = line.stopped,
 	})
 	if awaited ~= nil and rawget(seg, "stopped") == nil then
 		seg.stopped = awaited
@@ -308,16 +306,55 @@ local function stop_prepared_segments(line)
 	return tasks
 end
 
-local function has_completion_segment(line)
-	for pos = 1, #line.pipe do
-		local seg = resolve_pipe_segment(line, pos, false)
-
-		if type(seg) == "table" and seg.type == "completion" then
-			return true
-		end
+--- Return a deferred that settles when all currently matching segment.stopped
+--- awaitables resolve, including ones added later while the line is still open.
+---@param selector? string|function Segment type or predicate
+---@return table stopped_live Deferred with await()
+function Line:stopped_live(selector)
+	local stopped_live = done.create_deferred()
+	local seen = {}
+	local function line_is_stopped()
+		return type(self.stopped) == "table"
+			and type(self.stopped.is_resolved) == "function"
+			and self.stopped:is_resolved()
 	end
 
-	return false
+	local task = coop.spawn(function()
+		local observed_rev = self.pipe and self.pipe.rev or 0
+		while true do
+			local to_await = {}
+			local selected = self:select_segments(selector)
+			for _, seg in ipairs(selected) do
+				local collected = cooputil.collect_awaitables(seg.stopped)
+				for _, awaited in ipairs(collected) do
+					if not seen[awaited] then
+						seen[awaited] = true
+						table.insert(to_await, awaited)
+					end
+				end
+			end
+
+			if #to_await > 0 then
+				cooputil.await_all(to_await)
+			elseif line_is_stopped() then
+				break
+			else
+				vim.wait(50, function()
+					local current_rev = self.pipe and self.pipe.rev or observed_rev
+					if current_rev ~= observed_rev then
+						observed_rev = current_rev
+						return true
+					end
+					return line_is_stopped()
+				end, 10)
+			end
+		end
+
+		stopped_live:resolve({ stopped = true, source = self:full_source() })
+	end)
+
+	stopped_live.task = task
+	return stopped_live
 end
 
 --- Ensure segments are stopped and resolve line.stopped when done.
@@ -337,42 +374,12 @@ function Line:ensure_stopped()
 	return self.stopped
 end
 
---- Close this line and return the completion deferred.
---- Sends a completion done protocol run through the pipeline.
----@return table done Deferred completion handle with await()
+--- Close this line and return the stopped deferred.
+--- Ensures prepared state, then runs ensure_stopped lifecycle.
+---@return table stopped Deferred stop handle with await()
 function Line:close()
 	self:ensure_prepared()
-
-	if type(self.done) ~= "table" or type(self.done.resolve) ~= "function" then
-		self.done = done.create_deferred()
-	end
-
-	if not self._close_hooked then
-		self._close_hooked = true
-		self.done:on_resolve(function()
-			self:ensure_stopped()
-		end)
-	end
-
-	local emit_done_on_close = self.emit_completion_done_on_close ~= false
-	local already_resolved = type(self.done.is_resolved) == "function" and self.done:is_resolved()
-	if emit_done_on_close and not self._close_sent and not already_resolved then
-		self._close_sent = true
-		local has_completion = has_completion_segment(self)
-		if has_completion then
-			self:run(protocol.completion.completion_run(protocol.completion.COMPLETION_DONE, self:full_source()))
-		else
-			local state = self.completion_state or protocol.completion.create_completion_state()
-			self.completion_state = state
-			state.done = math.max(state.done + 1, state.hello)
-			state.settled = true
-			state.signal = protocol.completion.COMPLETION_DONE
-			state.name = self:full_source()
-			self.done:resolve(state)
-		end
-	end
-
-	return self.done
+	return self:ensure_stopped()
 end
 
 --- Create a thin child line inheriting from this one.
@@ -457,6 +464,8 @@ end
 ---@param ... any Segment entries to insert
 ---@return table pipe The updated pipe
 function Line:spliceSegment(pos, delete_count, ...)
+	-- TODO: when deleting segments, run ensure_stopped for removed segments before
+	-- dropping references. add tests covering removal teardown behavior.
 	self.pipe:splice(pos, delete_count, ...)
 	self._segment_instances = nil
 	self._segment_instance_sources = nil
@@ -521,16 +530,16 @@ local function new_line(config)
 		type = "line",
 	}
 
-	if config.done ~= nil then
-		instance.done = config.done
-	else
-		instance.done = done.create_deferred()
-	end
-
 	if config.stopped ~= nil then
 		instance.stopped = config.stopped
 	else
 		instance.stopped = done.create_deferred()
+	end
+
+	if config.auto_completion_done_on_close ~= nil then
+		instance.auto_completion_done_on_close = config.auto_completion_done_on_close
+	elseif not parent then
+		instance.auto_completion_done_on_close = true
 	end
 
 	if config.auto_id ~= nil then
@@ -589,8 +598,8 @@ local function new_line(config)
 			and k ~= "output"
 			and k ~= "fact"
 			and k ~= "sourcer"
-			and k ~= "done"
 			and k ~= "stopped"
+			and k ~= "auto_completion_done_on_close"
 			and k ~= "auto_id"
 			and k ~= "auto_fork"
 			and k ~= "auto_instance" then

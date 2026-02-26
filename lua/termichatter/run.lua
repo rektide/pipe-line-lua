@@ -107,7 +107,9 @@ function Run:execute()
 		end
 		local handler = self:resolve(seg)
 		if handler then
+			self.segment = seg
 			local result = handler(self)
+			self.segment = nil
 			if result == false then
 				return nil
 			end

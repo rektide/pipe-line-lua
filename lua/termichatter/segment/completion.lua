@@ -79,21 +79,38 @@ function M.completion_run(signal, name)
 	return run_config
 end
 
+---@param self table
 ---@return table state
-function M.create_completion_state()
-	return {
-		hello = 0,
-		done = 0,
-		settled = false,
-		signal = nil,
-		name = nil,
-	}
+local function ensure_segment_state(self)
+	if type(self.hello) ~= "number" then
+		self.hello = 0
+	end
+	if type(self.done) ~= "number" then
+		self.done = 0
+	end
+	if type(self.settled) ~= "boolean" then
+		self.settled = false
+	end
+	if type(self.stopped) ~= "table" or type(self.stopped.resolve) ~= "function" then
+		self.stopped = done.create_deferred()
+	end
+	return self
 end
 
 ---@param state table
 ---@param run table
 ---@return boolean applied
 function M.apply(state, run)
+	if type(state.hello) ~= "number" then
+		state.hello = 0
+	end
+	if type(state.done) ~= "number" then
+		state.done = 0
+	end
+	if type(state.settled) ~= "boolean" then
+		state.settled = false
+	end
+
 	local signal = M.get_completion_signal(run)
 	if signal == nil then
 		return false
@@ -121,51 +138,53 @@ function M.build_segment(define)
 		wants = {},
 		emits = {},
 		init = function(self, context)
-			local line = context and context.line
-			if not line then
-				return
-			end
-			if type(line.completion_state) ~= "table" then
-				line.completion_state = M.create_completion_state()
-			end
+			ensure_segment_state(self)
+			return self.stopped
 		end,
 		ensure_prepared = function(self, context)
+			ensure_segment_state(self)
+			if not self._hello_emitted then
+				self._hello_emitted = true
+				local line = context and context.line
+				if line then
+					line:run(M.completion_run(M.COMPLETION_HELLO, line:full_source()))
+				end
+			end
+			return self.stopped
+		end,
+		ensure_stopped = function(self, context)
+			ensure_segment_state(self)
+			if self._done_emitted then
+				return self.stopped
+			end
 			local line = context and context.line
 			if not line then
-				return
+				return self.stopped
 			end
-
-			if type(line.done) ~= "table" or type(line.done.resolve) ~= "function" then
-				line.done = done.create_deferred()
+			if line.auto_completion_done_on_close == false then
+				return self.stopped
 			end
-
-			if type(line.completion_state) ~= "table" then
-				line.completion_state = M.create_completion_state()
-			end
+			self._done_emitted = true
+			line:run(M.completion_run(M.COMPLETION_DONE, line:full_source()))
+			return self.stopped
 		end,
 		handler = function(run)
 			if not M.is_completion_protocol(run) then
 				return run.input
 			end
 
-			local line = run.line
-			if not line then
+			if type(run.segment) ~= "table" then
 				return run.input
 			end
 
-			local state = line.completion_state
-			if not state then
-				state = M.create_completion_state()
-				line.completion_state = state
-			end
-
+			local state = ensure_segment_state(run.segment)
 			local applied = M.apply(state, run)
 			if not applied then
 				return run.input
 			end
 
-			if state.settled and type(line.done) == "table" and not line.done:is_resolved() then
-				line.done:resolve(state)
+			if state.settled and type(state.stopped) == "table" and not state.stopped:is_resolved() then
+				state.stopped:resolve(state)
 			end
 
 			return nil

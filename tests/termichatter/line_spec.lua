@@ -26,9 +26,6 @@ describe("termichatter.line", function()
 			assert.is_not_nil(line.output)
 			assert.is_table(line.fact)
 			assert.is_function(line.sourcer)
-			assert.is_table(line.done)
-			assert.is_function(line.done.await)
-			assert.is_function(line.done.resolve)
 			assert.is_table(line.stopped)
 			assert.is_function(line.stopped.await)
 			assert.is_function(line.stopped.resolve)
@@ -280,22 +277,23 @@ describe("termichatter.line", function()
 			assert.are.equal(42, received.id)
 		end)
 
-		it("close returns line done deferred and resolves", function()
+		it("close returns line stopped deferred and resolves", function()
 			local segment = require("termichatter.segment")
 			local line = Line({ registry = registry, pipe = { segment.completion } })
 
-			local done = line:close()
-			local resolved = done:await(200, 10)
+			local stopped = line:close()
+			local resolved = stopped:await(200, 10)
 
-			assert.are.equal(done, line.done)
+			assert.are.equal(stopped, line.stopped)
 			assert.is_not_nil(resolved)
-			assert.are.equal("done", resolved.signal)
-			assert.are.equal(line.completion_state, resolved)
-			assert.is_true(line.done:is_resolved())
+			assert.is_true(stopped:is_resolved())
+			local completion_segments = line:select_segments("completion")
+			assert.are.equal(1, #completion_segments)
+			assert.is_true(completion_segments[1].stopped:is_resolved())
 			assert.is_true(line.stopped:is_resolved())
 		end)
 
-		it("close is idempotent and returns same deferred", function()
+		it("close is idempotent and returns same stopped deferred", function()
 			local line = Line({ registry = registry })
 
 			local first = line:close()
@@ -306,20 +304,23 @@ describe("termichatter.line", function()
 		end)
 
 		it("protocol runs pass through filters by default", function()
+			local segment = require("termichatter.segment")
 			local line = Line({
 				registry = registry,
-				pipe = { "level_filter", "completion" },
+				pipe = { segment.level_filter, segment.completion },
 				max_level = "error",
 			})
 
-			local done = line:close()
-			local resolved = done:await(200, 10)
+			local stopped = line:close()
+			local resolved = stopped:await(200, 10)
 
 			assert.is_not_nil(resolved)
-			assert.are.equal("done", resolved.signal)
+			local completion_segments = line:select_segments("completion")
+			assert.are.equal(1, #completion_segments)
+			assert.is_true(completion_segments[1].settled)
 		end)
 
-		it("addSegment calls segment init with done and stopped", function()
+		it("addSegment calls segment init without deferreds in context", function()
 			local seen = {}
 			local line = Line({ registry = registry, pipe = {} })
 
@@ -336,8 +337,8 @@ describe("termichatter.line", function()
 			})
 
 			assert.are.equal(line, seen.line)
-			assert.are.equal(line.done, seen.done)
-			assert.are.equal(line.stopped, seen.stopped)
+			assert.is_nil(seen.done)
+			assert.is_nil(seen.stopped)
 		end)
 
 		it("ensure_stopped resolves stopped deferred", function()
@@ -349,6 +350,63 @@ describe("termichatter.line", function()
 			assert.are.equal(line.stopped, stopped)
 			assert.is_not_nil(resolved)
 			assert.is_true(stopped:is_resolved())
+		end)
+
+		it("stopped_live awaits matching segment stopped handles", function()
+			local d1 = require("termichatter.done").create_deferred()
+			local d2 = require("termichatter.done").create_deferred()
+
+			local line = Line({ registry = registry, pipe = {} })
+			line:addSegment({
+				type = "probe",
+				init = function() return d1 end,
+				handler = function(run) return run.input end,
+			})
+
+			local live = line:stopped_live("probe")
+
+			vim.defer_fn(function()
+				line:addSegment({
+					type = "probe",
+					init = function() return d2 end,
+					handler = function(run) return run.input end,
+				})
+			end, 10)
+
+			vim.defer_fn(function() d1:resolve(true) end, 20)
+			vim.defer_fn(function() d2:resolve(true) end, 40)
+			vim.defer_fn(function() line:ensure_stopped() end, 45)
+
+			local resolved = live:await(300, 10)
+			assert.is_not_nil(resolved)
+			assert.is_true(resolved.stopped)
+		end)
+
+		it("stopped_live sees matching stopped handles added after start", function()
+			local done = require("termichatter.done")
+			local line = Line({ registry = registry, pipe = {} })
+			local d = done.create_deferred()
+
+			local live = line:stopped_live("probe")
+
+			vim.defer_fn(function()
+				line:addSegment({
+					type = "probe",
+					init = function()
+						return d
+					end,
+					handler = function(run)
+						return run.input
+					end,
+				})
+			end, 10)
+
+			vim.defer_fn(function() d:resolve(true) end, 25)
+			vim.defer_fn(function() line:ensure_stopped() end, 35)
+
+			local resolved = live:await(300, 10)
+			assert.is_not_nil(resolved)
+			assert.is_true(resolved.stopped)
 		end)
 	end)
 
