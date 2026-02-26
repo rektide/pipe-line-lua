@@ -34,9 +34,7 @@ describe("termichatter integration", function()
 				queue = app.output,
 			})
 
-			local outTask = coop.spawn(function()
-				bufOut:start()
-			end)
+			local outTask = bufOut:start_async()
 
 			app:info("Starting up")
 			app:debug("Debug info here")
@@ -47,13 +45,8 @@ describe("termichatter integration", function()
 				return #lines >= 3
 			end, 10)
 
-			outTask:cancel()
-			local out_ok, out_err = pcall(function()
-				outTask:await(200, 10)
-			end)
-			if not out_ok and not tostring(out_err):match("cancelled") then
-				error(out_err, 0)
-			end
+			bufOut:stop(200, 10)
+			assert.is_table(outTask)
 
 			local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 			local content = table.concat(lines, "\n")
@@ -159,9 +152,7 @@ describe("termichatter integration", function()
 				queue = inputQ,
 			})
 
-			local task = coop.spawn(function()
-				fan:start()
-			end)
+			local task = fan:start_async()
 
 			inputQ:push({ message = "broadcast 1" })
 			inputQ:push({ message = "broadcast 2" })
@@ -170,13 +161,8 @@ describe("termichatter integration", function()
 				return #buffer1 >= 2 and #buffer2 >= 2
 			end, 10)
 
-			task:cancel()
-			local ok, err = pcall(function()
-				task:await(200, 10)
-			end)
-			if not ok and not tostring(err):match("cancelled") then
-				error(err, 0)
-			end
+			fan:stop(200, 10)
+			assert.is_table(task)
 
 			assert.are.equal(2, #buffer1)
 			assert.are.equal(2, #buffer2)
