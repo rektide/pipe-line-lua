@@ -188,15 +188,12 @@ M.completion = M.define({
 		end
 
 		if type(line._completion_state) ~= "table" then
-			line._completion_state = {
-				hello = 0,
-				done = 0,
-				resolved = false,
-			}
+			line._completion_state = protocol.create_completion_state()
+			line._completion_state.resolved = false
 		end
 	end,
 	handler = function(run)
-		if not protocol.is_completion(run) then
+		if not protocol.is_completion_protocol(run) then
 			return run.input
 		end
 
@@ -207,23 +204,22 @@ M.completion = M.define({
 
 		local state = line._completion_state
 		if not state then
-			state = { hello = 0, done = 0, resolved = false }
+			state = protocol.create_completion_state()
+			state.resolved = false
 			line._completion_state = state
 		end
 
-		local signal = run.mpsc_completion
-		if signal == protocol.COMPLETION_HELLO then
-			state.hello = state.hello + 1
-		elseif signal == protocol.COMPLETION_DONE or signal == protocol.COMPLETION_SHUTDOWN then
-			state.done = state.done + 1
+		local status = protocol.query_completion(state, run)
+		if not status then
+			return run.input
 		end
 
-		if not state.resolved and state.done >= state.hello and type(line.done) == "table" then
+		if not state.resolved and status.settled and type(line.done) == "table" then
 			state.resolved = true
 			line.done:resolve({
-				hello = state.hello,
-				done = state.done,
-				signal = signal,
+				hello = status.hello,
+				done = status.done,
+				signal = status.signal,
 			})
 		end
 

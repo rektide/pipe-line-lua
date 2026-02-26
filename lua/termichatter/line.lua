@@ -197,7 +197,8 @@ function Line:close()
 		end)
 	end
 
-	if not self._close_sent then
+	local already_resolved = type(self.done.is_resolved) == "function" and self.done:is_resolved()
+	if not self._close_sent and not already_resolved then
 		self._close_sent = true
 		local has_completion = has_completion_segment(self)
 		if has_completion then
@@ -381,8 +382,14 @@ local function new_line(config)
 		instance.sourcer = logutil.full_source
 	end
 
+	if config.done ~= nil then
+		instance.done = config.done
+	else
+		instance.done = protocol.create_deferred()
+	end
+
 	for k, v in pairs(config) do
-		if k ~= "parent" and k ~= "pipe" and k ~= "output" and k ~= "fact" and k ~= "sourcer" then
+		if k ~= "parent" and k ~= "pipe" and k ~= "output" and k ~= "fact" and k ~= "sourcer" and k ~= "done" then
 			instance[k] = v
 		end
 	end

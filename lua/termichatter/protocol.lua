@@ -30,20 +30,39 @@ end
 
 ---@param run table
 ---@return boolean
-function M.is_completion(run)
+function M.is_completion_protocol(run)
+	return M.get_completion_signal(run) ~= nil
+end
+
+---@param run table
+---@return string|nil signal
+function M.get_completion_signal(run)
 	if not M.is_protocol(run) then
-		return false
+		return nil
 	end
-	return M.is_completion_signal(run[M.COMPLETION_FIELD])
+	local signal = run[M.COMPLETION_FIELD]
+	if M.is_completion_signal(signal) then
+		return signal
+	end
+	return nil
 end
 
 ---@param run table
 ---@return boolean
-function M.is_shutdown(run)
-	if not M.is_protocol(run) then
-		return false
-	end
-	return run[M.COMPLETION_FIELD] == M.COMPLETION_SHUTDOWN
+function M.is_completion_hello(run)
+	return M.get_completion_signal(run) == M.COMPLETION_HELLO
+end
+
+---@param run table
+---@return boolean
+function M.is_completion_done(run)
+	return M.get_completion_signal(run) == M.COMPLETION_DONE
+end
+
+---@param run table
+---@return boolean
+function M.is_completion_shutdown(run)
+	return M.get_completion_signal(run) == M.COMPLETION_SHUTDOWN
 end
 
 ---@param signal 'hello'|'done'|'shutdown'
@@ -111,13 +130,44 @@ function M.create_deferred()
 	}
 end
 
--- Legacy queue helpers
----@param msg table
----@return boolean
-function M.isCompletion(msg)
-	return M.is_completion_payload(msg)
+---@return table state
+function M.create_completion_state()
+	return {
+		hello = 0,
+		done = 0,
+		settled = false,
+		resolved = false,
+	}
 end
 
+---@param state table
+---@param run table
+---@return table|nil status
+function M.query_completion(state, run)
+	local signal = M.get_completion_signal(run)
+	if signal == nil then
+		return nil
+	end
+
+	if signal == M.COMPLETION_HELLO then
+		state.hello = state.hello + 1
+	elseif signal == M.COMPLETION_DONE or signal == M.COMPLETION_SHUTDOWN then
+		state.done = state.done + 1
+	end
+
+	state.settled = state.done >= state.hello
+
+	return {
+		signal = signal,
+		hello = state.hello,
+		done = state.done,
+		settled = state.settled,
+		resolved = state.resolved,
+		name = run[M.COMPLETION_NAME_FIELD],
+	}
+end
+
+-- Legacy queue helpers
 ---@param msg table
 ---@return boolean
 function M.is_completion_payload(msg)
@@ -128,12 +178,6 @@ function M.is_completion_payload(msg)
 			or msg.type == "termichatter.completion.hello"
 			or msg.type == "termichatter.shutdown"
 		)
-end
-
----@param msg table
----@return boolean
-function M.isShutdown(msg)
-	return M.is_shutdown_payload(msg)
 end
 
 ---@param msg table

@@ -344,6 +344,13 @@ app:run(done)
 
 -- Close returns line.done deferred
 local settled = app:close():await(500, 10)
+
+-- Or run protocol query logic yourself in custom segments
+local state = protocol.create_completion_state()
+local status = protocol.query_completion(state, protocol.completion_run("hello", "worker:a"))
+if status and status.settled then
+    -- your custom completion behavior
+end
 ```
 
 ## Built-in Segment
