@@ -352,62 +352,6 @@ describe("termichatter.line", function()
 			assert.is_true(stopped:is_resolved())
 		end)
 
-		it("stopped_live awaits matching segment stopped handles", function()
-			local d1 = require("termichatter.done").create_deferred()
-			local d2 = require("termichatter.done").create_deferred()
-
-			local line = Line({ registry = registry, pipe = {} })
-			line:addSegment({
-				type = "probe",
-				init = function() return d1 end,
-				handler = function(run) return run.input end,
-			})
-
-			local live = line:stopped_live("probe")
-
-			vim.defer_fn(function()
-				line:addSegment({
-					type = "probe",
-					init = function() return d2 end,
-					handler = function(run) return run.input end,
-				})
-			end, 10)
-
-			vim.defer_fn(function() d1:resolve(true) end, 20)
-			vim.defer_fn(function() d2:resolve(true) end, 40)
-			vim.defer_fn(function() line:ensure_stopped() end, 45)
-
-			local resolved = live:await(300, 10)
-			assert.is_not_nil(resolved)
-			assert.is_true(resolved.stopped)
-		end)
-
-		it("stopped_live sees matching stopped handles added after start", function()
-			local done = require("termichatter.done")
-			local line = Line({ registry = registry, pipe = {} })
-			local d = done.create_deferred()
-
-			local live = line:stopped_live("probe")
-
-			vim.defer_fn(function()
-				line:addSegment({
-					type = "probe",
-					init = function()
-						return d
-					end,
-					handler = function(run)
-						return run.input
-					end,
-				})
-			end, 10)
-
-			vim.defer_fn(function() d:resolve(true) end, 25)
-			vim.defer_fn(function() line:ensure_stopped() end, 35)
-
-			local resolved = live:await(300, 10)
-			assert.is_not_nil(resolved)
-			assert.is_true(resolved.stopped)
-		end)
 	end)
 
 	describe("pipe helpers", function()

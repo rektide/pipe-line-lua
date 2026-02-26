@@ -313,7 +313,8 @@ end
 function Line:stopped_live(selector)
 	local stopped_live = done.create_deferred()
 	local seen = {}
-	local step_scheduled = false
+	local pending = 0
+	local pump_scheduled = false
 
 	local function line_is_stopped()
 		return type(self.stopped) == "table"
@@ -321,58 +322,74 @@ function Line:stopped_live(selector)
 			and self.stopped:is_resolved()
 	end
 
-	local function collect_new_batch()
-		local batch = {}
+	local function maybe_resolve()
+		if stopped_live:is_resolved() then
+			return
+		end
+		if line_is_stopped() and pending == 0 then
+			stopped_live:resolve({ stopped = true, source = self:full_source() })
+		end
+	end
+
+	local function on_settled()
+		pending = pending - 1
+		if pending < 0 then
+			pending = 0
+		end
+		maybe_resolve()
+	end
+
+	local function track_awaitable(awaited)
+		if seen[awaited] then
+			return
+		end
+		seen[awaited] = true
+
+		if type(awaited.is_resolved) == "function" and awaited:is_resolved() then
+			return
+		end
+
+		pending = pending + 1
+		if type(awaited.on_resolve) == "function" then
+			awaited:on_resolve(on_settled)
+			return
+		end
+
+		coop.spawn(function()
+			cooputil.await_all({ awaited })
+			on_settled()
+		end)
+	end
+
+	local function pump()
+		pump_scheduled = false
+		if stopped_live:is_resolved() then
+			return
+		end
+
 		local selected = self:select_segments(selector)
 		for _, seg in ipairs(selected) do
 			local collected = cooputil.collect_awaitables(seg.stopped)
 			for _, awaited in ipairs(collected) do
-				if not seen[awaited] then
-					seen[awaited] = true
-					table.insert(batch, awaited)
-				end
+				track_awaitable(awaited)
 			end
 		end
-		return batch
-	end
 
-	local function schedule_step(delay)
-		if stopped_live:is_resolved() or step_scheduled then
-			return
+		maybe_resolve()
+		if not stopped_live:is_resolved() and not line_is_stopped() and not pump_scheduled then
+			pump_scheduled = true
+			vim.defer_fn(pump, 25)
 		end
-		step_scheduled = true
-		vim.defer_fn(function()
-			step_scheduled = false
-
-			if stopped_live:is_resolved() then
-				return
-			end
-
-			local batch = collect_new_batch()
-			if #batch > 0 then
-				coop.spawn(function()
-					cooputil.await_all(batch)
-					schedule_step(0)
-				end)
-				return
-			end
-
-			if line_is_stopped() then
-				stopped_live:resolve({ stopped = true, source = self:full_source() })
-				return
-			end
-
-			schedule_step(25)
-		end, delay or 0)
 	end
 
 	if type(self.stopped) == "table" and type(self.stopped.on_resolve) == "function" then
 		self.stopped:on_resolve(function()
-			schedule_step(0)
+			pump()
 		end)
 	end
 
-	schedule_step(0)
+	pump_scheduled = true
+	vim.defer_fn(pump, 0)
 	return stopped_live
 end
 
