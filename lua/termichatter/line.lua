@@ -4,20 +4,13 @@ local inherit = require("termichatter.inherit")
 local Pipe = require("termichatter.pipe")
 local consumer = require("termichatter.consumer")
 local segment = require("termichatter.segment")
+local logutil = require("termichatter.log")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 local Line = {}
-local Logger = {}
-local LOGGER_MT = {}
+local LINE_MT = {}
 
-Line.priority = {
-	error = 1,
-	warn = 2,
-	info = 3,
-	log = 4,
-	debug = 5,
-	trace = 6,
-}
+Line.level = logutil.level
 
 Line.defaultSegment = {
 	"timestamper",
@@ -26,51 +19,86 @@ Line.defaultSegment = {
 	"module_filter",
 }
 
-local function with_priority(msg, name, level)
-	if type(msg) == "string" then
-		msg = { message = msg }
+local function shallow_copy(input)
+	local out = {}
+	for k, v in pairs(input or {}) do
+		out[k] = v
 	end
-	msg = msg or {}
-	msg.priority = name
-	msg.priorityLevel = level
-	return msg
+	return out
 end
 
-for name, level in pairs(Line.priority) do
-	if name ~= "log" then
-		Line[name] = function(self, msg)
-			return self:log(with_priority(msg, name, level))
-		end
-		Logger[name] = Line[name]
-	end
-end
-
-function Logger:log(msg)
-	return Line.log(self, msg)
-end
-
-LOGGER_MT.__index = function(self, k)
-	local method = Logger[k]
+function LINE_MT.__index(self, key)
+	local method = Line[key]
 	if method ~= nil then
 		return method
 	end
-	return self.line[k]
-end
 
-LOGGER_MT.__call = function(t, msg)
-	return t:log(msg)
-end
-
---- Send a message through the pipeline
----@param msg string|table Message to log
----@return table run The run that executed
-function Line:log(msg)
-	if type(msg) == "string" then
-		msg = { message = msg }
+	local parent = rawget(self, "parent")
+	if parent then
+		return parent[key]
 	end
-	msg = msg or {}
-	msg.source = msg.source or self.source
-	return self:run({ input = msg })
+
+	return nil
+end
+
+--- Send a message through the pipeline.
+---@param message? string|table Optional message string or attrs table
+---@param attrs? table Optional attrs merged into payload
+---@return table run The run that executed
+function Line:log(message, attrs)
+	local payload = logutil.normalize(self, message, attrs)
+	return self:run({ input = payload })
+end
+
+--- Log at error level.
+---@param message? string|table Optional message string or attrs table
+---@param attrs? table Optional attrs merged into payload
+---@return table run The run that executed
+function Line:error(message, attrs)
+	local payload = logutil.normalize(self, message, attrs, "error")
+	return self:run({ input = payload })
+end
+
+--- Log at warn level.
+---@param message? string|table Optional message string or attrs table
+---@param attrs? table Optional attrs merged into payload
+---@return table run The run that executed
+function Line:warn(message, attrs)
+	local payload = logutil.normalize(self, message, attrs, "warn")
+	return self:run({ input = payload })
+end
+
+--- Log at info level.
+---@param message? string|table Optional message string or attrs table
+---@param attrs? table Optional attrs merged into payload
+---@return table run The run that executed
+function Line:info(message, attrs)
+	local payload = logutil.normalize(self, message, attrs, "info")
+	return self:run({ input = payload })
+end
+
+--- Log at debug level.
+---@param message? string|table Optional message string or attrs table
+---@param attrs? table Optional attrs merged into payload
+---@return table run The run that executed
+function Line:debug(message, attrs)
+	local payload = logutil.normalize(self, message, attrs, "debug")
+	return self:run({ input = payload })
+end
+
+--- Log at trace level.
+---@param message? string|table Optional message string or attrs table
+---@param attrs? table Optional attrs merged into payload
+---@return table run The run that executed
+function Line:trace(message, attrs)
+	local payload = logutil.normalize(self, message, attrs, "trace")
+	return self:run({ input = payload })
+end
+
+--- Compute the full source path for this line by walking parent chain.
+---@return string|nil source
+function Line:full_source()
+	return logutil.full_source(self)
 end
 
 --- Create a Run from this line
@@ -84,16 +112,49 @@ function Line:run(config)
 	return Run(self, config)
 end
 
---- Create a child line inheriting from this one
----@param config? table Config for the child
----@return table line New Line instance
-function Line:derive(config)
-	config = config or {}
-	config.parent = self
-	return Line(config)
+--- Create a thin child line inheriting from this one.
+--- Child keeps its own local source and reads all other fields through parent.
+---@param source_or_config? string|table Child source segment or config table
+---@param config? table Additional child config
+---@return table line New child line
+function Line:child(source_or_config, config)
+	local child_config = {}
+
+	if type(source_or_config) == "table" then
+		child_config = shallow_copy(source_or_config)
+	else
+		child_config = shallow_copy(config)
+		if source_or_config ~= nil then
+			child_config.source = source_or_config
+		end
+	end
+
+	child_config.parent = self
+	return Line(child_config)
 end
 
---- Clone the pipe array for independent modification
+--- Create an independent forked line.
+--- Fork owns its own pipe/output/fact while inheriting other fields through parent.
+---@param source_or_config? string|table Fork source segment or config table
+---@param config? table Additional fork config
+---@return table line New independent line
+function Line:fork(source_or_config, config)
+	local forked = self:child(source_or_config, config)
+
+	if rawget(forked, "pipe") == nil then
+		forked.pipe = self:clone_pipe()
+	end
+	if rawget(forked, "output") == nil then
+		forked.output = MpscQueue.new()
+	end
+	if rawget(forked, "fact") == nil then
+		forked.fact = shallow_copy(self.fact)
+	end
+
+	return forked
+end
+
+--- Clone the pipe array for independent modification.
 ---@param segment_list? string[] Optional new segment list
 ---@return table pipe New pipe object
 function Line:clone_pipe(segment_list)
@@ -103,7 +164,7 @@ function Line:clone_pipe(segment_list)
 	return self.pipe:clone()
 end
 
---- Resolve a segment name from the registry chain
+--- Resolve a segment name from the registry chain.
 ---@param name string|function|table Segment identifier
 ---@return function|table|nil segment Resolved segment
 function Line:resolve_segment(name)
@@ -114,8 +175,9 @@ function Line:resolve_segment(name)
 		return nil
 	end
 
-	if rawget(self, name) then
-		return rawget(self, name)
+	local scoped = inherit.walk_field(self, name)
+	if scoped ~= nil then
+		return scoped
 	end
 
 	local registry = inherit.walk_field(self, "registry")
@@ -126,30 +188,7 @@ function Line:resolve_segment(name)
 	return nil
 end
 
---- Create a logger with priority method
----@param config? table Logger config { module?: string, ... }
----@return table logger Logger with priority method
-function Line:baseLogger(config)
-	config = config or {}
-	local logger = {
-		type = "logger",
-		line = self,
-	}
-
-	for k, v in pairs(config) do
-		logger[k] = v
-	end
-
-	if config.module and self.source then
-		logger.source = self.source .. ":" .. config.module
-	end
-
-	setmetatable(logger, LOGGER_MT)
-
-	return logger
-end
-
---- Splice segment entries into the pipeline
+--- Splice segment entries into the pipeline.
 ---@param pos number Position to splice at
 ---@param delete_count number Number of entries to delete
 ---@param ... any Segment entries to insert
@@ -159,7 +198,7 @@ function Line:spliceSegment(pos, delete_count, ...)
 	return self.pipe
 end
 
---- Add a segment to the pipeline
+--- Add a segment to the pipeline.
 --- Common forms:
 ---   addSegment("name", handler, pos?) -- define on line and insert by name
 ---   addSegment(segmentRef, pos?)       -- insert string/function/table segment ref
@@ -190,7 +229,7 @@ function Line:addSegment(segment, handler_or_pos, pos)
 	return inserted
 end
 
---- Add an explicit async queue boundary segment
+--- Add an explicit async queue boundary segment.
 ---@param pos? number Position to insert boundary (default: end)
 ---@param config? table { queue?: table, strategy?: 'self'|'clone'|'fork' }
 ---@return table handoff The inserted mpsc_handoff segment
@@ -201,69 +240,67 @@ function Line:addHandoff(pos, config)
 	return handoff
 end
 
---- Start async consumer for all mpsc_handoff segments
+--- Start async consumer for all mpsc_handoff segments.
 ---@return table[] task Array of spawned task
 function Line:startConsumer()
 	return consumer.start_consumer(self)
 end
 
---- Stop all async consumer
+--- Stop all async consumer.
 function Line:stopConsumer()
 	consumer.stop_consumer(self)
 end
 
---- Construct a new Line
+--- Construct a new Line.
 ---@param config? table Configuration
 ---@return table line New Line instance
 local function new_line(config)
 	config = config or {}
 	local parent = config.parent
-	config.parent = nil
 
 	local instance = {
 		type = "line",
-		fact = {},
 	}
 
-	-- pipe: from config, or clone parent's, or default
-	if config.pipe then
+	if parent then
+		instance.parent = parent
+	end
+
+	if config.pipe ~= nil then
 		if type(config.pipe) == "table" and config.pipe.splice then
 			instance.pipe = config.pipe
 		else
 			instance.pipe = Pipe(config.pipe)
 		end
-		config.pipe = nil
-	elseif parent and parent.pipe then
-		instance.pipe = parent.pipe:clone()
-	else
+	elseif not parent then
 		instance.pipe = Pipe(Line.defaultSegment)
 	end
 
-	-- output queue
-	if config.output then
+	if config.output ~= nil then
 		instance.output = config.output
-		config.output = nil
-	else
+	elseif not parent then
 		instance.output = MpscQueue.new()
 	end
-	-- apply remaining config
+
+	if config.fact ~= nil then
+		instance.fact = config.fact
+	elseif not parent then
+		instance.fact = {}
+	end
+
+	if config.sourcer ~= nil then
+		instance.sourcer = config.sourcer
+	elseif not parent then
+		instance.sourcer = logutil.full_source
+	end
+
 	for k, v in pairs(config) do
-		instance[k] = v
+		if k ~= "parent" and k ~= "pipe" and k ~= "output" and k ~= "fact" and k ~= "sourcer" then
+			instance[k] = v
+		end
 	end
 
-	-- registry: inherit from parent or use default
-	if not instance.registry and parent then
-		-- will fall through via __index
-	end
-
-	-- set up metatable: methods from Line, data from parent
-	setmetatable(instance, { __index = function(_, k)
-		local method = Line[k]
-		if method ~= nil then return method end
-		if parent then return parent[k] end
-		return nil
-	end })
-
+	setmetatable(instance, LINE_MT)
 	return instance
 end
 

@@ -92,6 +92,8 @@ function Run:execute()
 			if util.is_segment_factory(resolved) then
 				seg = resolved.create()
 				self.pipe[self.pos] = seg
+			elseif resolved ~= nil then
+				seg = resolved
 			end
 		end
 		local handler = self:resolve(seg)

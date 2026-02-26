@@ -51,10 +51,10 @@ local app = termichatter({ source = "myapp:main" })
 app:info("Application starting")
 app:error("Something went wrong")
 
--- Or create a logger with module context
-local log = app:baseLogger({ module = "startup" })
-log.info("Initializing")
-log.debug({ message = "Config loaded", config = { debug = true } })
+-- Create thin child lines for module context
+local startup = app:child("startup")
+startup:info("Initializing")
+startup:debug("Config loaded", { config = { debug = true } })
 
 -- Messages arrive in app.output (an mpsc queue)
 ```
@@ -73,19 +73,25 @@ Configuration:
 
 | Field | Description |
 |-------|-------------|
-| `source` | Default source URI for messages |
+| `source` | Local source segment for this line |
 | `pipe` | Array of segment name (default: timestamper, ingester, cloudevent, module_filter) |
 | `registry` | Segment registry (default: global registry) |
 | `output` | Output mpsc queue (default: new queue) |
 | `filter` | Pattern or function for module filtering |
 | `parent` | Parent Line for inheritance |
 
-Child line inherit config from parent via metatable:
+Child lines are thin by default and inherit from parent via metatable:
 
 ```lua
-local auth = app:derive({ source = "myapp:auth" })
-print(auth.source)  -- "myapp:auth"
--- auth inherits app's registry, filter, etc.
+local auth = app:child("auth")
+local jwt = auth:child("jwt")
+
+print(auth.source)         -- "auth" (local segment)
+print(jwt:full_source())   -- "myapp:auth:jwt"
+-- child shares pipe/output by default
+
+local worker = app:fork("worker")
+-- fork owns independent pipe/output/fact
 ```
 
 ### Pipe
@@ -349,7 +355,7 @@ tracker:done()  -- emits shutdown when hello count == done count
 | `timestamper` | — | `time` | Add `time` field with `vim.uv.hrtime()` |
 | `cloudevent` | — | `cloudevent` | Add `id`, `source`, `type`, `specversion` |
 | `module_filter` | — | — | Filter by source pattern (string or function) |
-| `priority_filter` | — | — | Filter by log level |
+| `level_filter` | — | — | Filter by log level |
 | `ingester` | — | — | Apply custom decoration function |
 | `lattice_resolver` | — | — | Dependency injection via pipeline self-rewriting |
 
@@ -370,8 +376,7 @@ Message are Lua table with conventional field:
 | `source` | Origin URI (e.g. `"myapp:auth:jwt"`) |
 | `type` | Event type (`"termichatter.log"`) |
 | `specversion` | CloudEvents version (`"1.0"`) |
-| `priority` | Log level name (error, warn, info, debug, trace) |
-| `priorityLevel` | Numeric priority (1–6) |
+| `level` | Numeric log level (multiples of 10) |
 | `message` | Human-readable message string |
 
 ## Testing

@@ -748,7 +748,7 @@ export const moduleFilter: Pipe<Element, Element> = (
   return filter(source) ? input : undefined;
 };
 
-// priority_filter.ts
+// level_filter.ts
 export const priorityFilter: Pipe<LogElement, LogElement> = (
   input,
   line,
@@ -763,7 +763,7 @@ export const priorityFilter: Pipe<LogElement, LogElement> = (
 defaultRegistry.register("timestamper", timestamper);
 defaultRegistry.register("cloudevent", cloudevent);
 defaultRegistry.register("module_filter", moduleFilter);
-defaultRegistry.register("priority_filter", priorityFilter);
+defaultRegistry.register("level_filter", priorityFilter);
 ```
 
 ## Outputter
@@ -918,7 +918,7 @@ typeflow/
 │   │   ├── timestamper.ts
 │   │   ├── cloudevent.ts
 │   │   ├── module_filter.ts
-│   │   └── priority_filter.ts
+│   │   └── level_filter.ts
 │   ├── outputter/
 │   │   ├── index.ts
 │   │   ├── console.ts

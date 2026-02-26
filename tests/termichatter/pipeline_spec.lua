@@ -13,6 +13,7 @@ describe("termichatter.pipeline", function()
 		package.loaded["termichatter.pipe"] = nil
 		package.loaded["termichatter.segment"] = nil
 		package.loaded["termichatter.consumer"] = nil
+		package.loaded["termichatter.log"] = nil
 		package.loaded["termichatter.protocol"] = nil
 		package.loaded["termichatter.resolver"] = nil
 		termichatter = require("termichatter")
@@ -114,15 +115,14 @@ describe("termichatter.pipeline", function()
 	describe("recursive context", function()
 		it("child line inherits from parent", function()
 			local parent = termichatter({
-				source = "parent:app",
+				source = "parent",
 				customSetting = "inherited",
 			})
 
-			local child = parent:derive({
-				source = "parent:app:child",
-			})
+			local child = parent:child("child")
 
-			assert.are.equal("parent:app:child", child.source)
+			assert.are.equal("child", child.source)
+			assert.are.equal("parent:child", child:full_source())
 			assert.are.equal("inherited", child.customSetting)
 		end)
 
@@ -131,16 +131,16 @@ describe("termichatter.pipeline", function()
 				filter = "parent.*",
 			})
 
-			local child = parent:derive({
+			local child = parent:child({
 				filter = "child.*",
 			})
 
 			assert.are.equal("child.*", child.filter)
 		end)
 
-		it("child has independent pipeline", function()
+		it("fork has independent pipeline", function()
 			local parent = termichatter()
-			local child = parent:derive({})
+			local child = parent:fork("worker")
 
 			child:addSegment("childOnly", function(run)
 				return run.input
@@ -148,6 +148,7 @@ describe("termichatter.pipeline", function()
 
 			assert.is_nil(rawget(parent, "childOnly"))
 			assert.are.equal(#parent.pipe + 1, #child.pipe)
+			assert.are_not.equal(parent.pipe, child.pipe)
 		end)
 
 		it("log methods inherit module context", function()

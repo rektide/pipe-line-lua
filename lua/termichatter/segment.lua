@@ -3,6 +3,7 @@
 local M = {}
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local util = require("termichatter.util")
+local logutil = require("termichatter.log")
 
 M.HANDOFF_FIELD = "__termichatter_handoff_run"
 
@@ -57,7 +58,7 @@ M.cloudevent = {
 		end
 
 		input.specversion = input.specversion or "1.0"
-		input.source = input.source or run.source or (run.line and run.line.source)
+		input.source = input.source or run.source or (run.line and logutil.full_source(run.line))
 		input.type = input.type or "termichatter.log"
 
 		return input
@@ -100,21 +101,25 @@ M.module_filter = {
 	end,
 }
 
---- Priority filter segment: filter by log level
+--- Level filter segment: filter by log level
 --- Returns false to stop pipeline
-M.priority_filter = {
+M.level_filter = {
 	wants = {},
 	emits = {},
 	handler = function(run)
 	local input = run.input
-	local minLevel = run.minLevel or (run.line and run.line.minLevel) or 0
+	local minLevel = logutil.resolve_level(
+		run.minLevel or (run.line and run.line.minLevel),
+		math.huge,
+		"minLevel"
+	)
 
 	if type(input) ~= "table" then
 		return input
 	end
 
-	local level = input.priorityLevel or 0
-	if level >= minLevel then
+	local level = logutil.resolve_level(input.level, math.huge, "payload level")
+	if level <= minLevel then
 		return input
 	end
 

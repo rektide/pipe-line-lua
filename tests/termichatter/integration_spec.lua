@@ -15,6 +15,7 @@ describe("termichatter integration", function()
 		package.loaded["termichatter.pipe"] = nil
 		package.loaded["termichatter.segment"] = nil
 		package.loaded["termichatter.consumer"] = nil
+		package.loaded["termichatter.log"] = nil
 		package.loaded["termichatter.protocol"] = nil
 		package.loaded["termichatter.outputter"] = nil
 		package.loaded["termichatter.resolver"] = nil
@@ -62,7 +63,7 @@ describe("termichatter integration", function()
 	end)
 
 	describe("nested module inheritance", function()
-		it("child logger inherit parent context", function()
+		it("child line inherits parent context with composed source", function()
 			local captured = {}
 
 			local root = termichatter({
@@ -70,26 +71,26 @@ describe("termichatter integration", function()
 				environment = "production",
 			})
 
-			local authModule = root:derive({
-				source = "myapp:auth",
-				component = "authentication",
-			})
+			local authModule = root:child({ source = "auth", component = "authentication" })
 
 			authModule:addSegment("capture", function(run)
 				table.insert(captured, run.input)
 				return run.input
 			end)
 
-			authModule.module = "jwt"
+			local jwtModule = authModule:child("jwt")
 			authModule:info("Token validated")
+			jwtModule:info("Token validated jwt")
 
-			assert.are.equal(1, #captured)
-			local msg = captured[1]
+			assert.are.equal(2, #captured)
+			local first = captured[1]
+			local second = captured[2]
 
-			assert.are.equal("myapp:auth", msg.source)
-			assert.are.equal("info", msg.priority)
-			assert.is_not_nil(msg.time)
-			assert.is_not_nil(msg.id)
+			assert.are.equal("myapp:auth", first.source)
+			assert.are.equal("myapp:auth:jwt", second.source)
+			assert.are.equal(30, first.level)
+			assert.is_not_nil(first.time)
+			assert.is_not_nil(first.id)
 		end)
 	end)
 
@@ -108,9 +109,9 @@ describe("termichatter integration", function()
 				end
 			end)
 
-			local modA = app:derive({ source = "A", output = app.output })
-			local modB = app:derive({ source = "B", output = app.output })
-			local modC = app:derive({ source = "C", output = app.output })
+			local modA = app:child("A")
+			local modB = app:child("B")
+			local modC = app:child("C")
 
 			for _ = 1, 3 do
 				modA:info("from A")

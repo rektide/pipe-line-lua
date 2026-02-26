@@ -14,6 +14,7 @@ describe("termichatter", function()
 		package.loaded["termichatter.pipe"] = nil
 		package.loaded["termichatter.segment"] = nil
 		package.loaded["termichatter.consumer"] = nil
+		package.loaded["termichatter.log"] = nil
 		package.loaded["termichatter.protocol"] = nil
 		package.loaded["termichatter.resolver"] = nil
 		termichatter = require("termichatter")
@@ -69,25 +70,19 @@ describe("termichatter", function()
 		end)
 	end)
 
-	describe("derive", function()
-		it("creates child with own pipeline", function()
-			local app = termichatter()
-			assert.is_not_nil(app.pipe)
-			assert.is_not_nil(app.output)
+	describe("child and fork", function()
+		it("creates thin child that shares output", function()
+			local app = termichatter({ source = "root" })
+			local child = app:child("auth")
+			assert.are.equal(app.output, child.output)
+			assert.are.equal("root:auth", child:full_source())
 		end)
 
-		it("inherits from parent", function()
-			local app = termichatter()
-			assert.is_function(app.log)
-		end)
-
-		it("accepts config", function()
-			local app = termichatter({
-				source = "custom:source",
-				customField = "value",
-			})
-			assert.are.equal("custom:source", app.source)
-			assert.are.equal("value", app.customField)
+		it("creates fork with independent output", function()
+			local app = termichatter({ source = "root" })
+			local forked = app:fork("worker")
+			assert.are_not.equal(app.output, forked.output)
+			assert.are.equal("root:worker", forked:full_source())
 		end)
 	end)
 
@@ -110,7 +105,7 @@ describe("termichatter", function()
 		end)
 	end)
 
-	describe("log methods", function()
+		describe("log methods", function()
 		it("line has priority methods", function()
 			local app = termichatter()
 			assert.is_function(app.error)
@@ -136,7 +131,7 @@ describe("termichatter", function()
 			assert.are.equal("test", captured.source)
 		end)
 
-		it("priority methods set priority field", function()
+		it("priority methods set numeric level", function()
 			local app = termichatter()
 			local captured = nil
 
@@ -147,8 +142,7 @@ describe("termichatter", function()
 
 			app:error("error message")
 
-			assert.are.equal("error", captured.priority)
-			assert.are.equal(1, captured.priorityLevel)
+			assert.are.equal(10, captured.level)
 		end)
 	end)
 

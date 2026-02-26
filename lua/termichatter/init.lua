@@ -11,6 +11,7 @@ local driver = require("termichatter.driver")
 local protocol = require("termichatter.protocol")
 local resolver = require("termichatter.resolver")
 local inherit = require("termichatter.inherit")
+local log = require("termichatter.log")
 
 local M = {}
 
@@ -26,13 +27,16 @@ M.driver = driver
 M.protocol = protocol
 M.resolver = resolver
 M.inherit = inherit
-M.priority = Line.priority
+M.log = log
+M.level = log.level
+M.set_default_level = log.set_default_level
+M.get_default_level = log.get_default_level
 
 -- Register built-in segment
 registry:register("timestamper", segment.timestamper)
 registry:register("cloudevent", segment.cloudevent)
 registry:register("module_filter", segment.module_filter)
-registry:register("priority_filter", segment.priority_filter)
+registry:register("level_filter", segment.level_filter)
 registry:register("ingester", segment.ingester)
 registry:register("mpsc_handoff", segment.mpsc_handoff_factory())
 registry:register("lattice_resolver", {
