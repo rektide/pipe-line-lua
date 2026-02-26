@@ -195,8 +195,8 @@ interface Line<In = unknown, Out = unknown> {
   /** Prepare/start segment runtime hooks */
   prepare_segments(): void;
   
-  /** Stop prepared segment runtime hooks */
-  stop_segments(): void;
+  /** Send completion done and close prepared hooks */
+  close(): Promise<void>;
 }
 
 interface LineConfig<In = unknown, Out = unknown> {
@@ -530,9 +530,10 @@ class LineImpl<In, Out> implements Line<In, Out> {
     });
   }
   
-  stop_segments(): void {
+  close(): Promise<void> {
     this.consumerHandle.forEach((h) => h.cancel());
     this.consumerHandle = [];
+    return Promise.resolve();
   }
 }
 ```

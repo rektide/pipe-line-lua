@@ -39,7 +39,7 @@ describe("termichatter.mpsc", function()
 
 		assert.are.equal("auto", out.message)
 		assert.are.same({ "auto" }, seen)
-		app:stop_segments()
+		app:close():await(200, 10)
 	end)
 
 	it("auto-initializes consumer when first handoff executes", function()
@@ -62,7 +62,7 @@ describe("termichatter.mpsc", function()
 		assert.is_table(app._consumer_task)
 		assert.is_true(#app._consumer_task >= 1)
 
-		app:stop_segments()
+		app:close():await(200, 10)
 	end)
 
 	it("delays processing until explicit prepare_segments when autoStartConsumers is false", function()
@@ -86,7 +86,7 @@ describe("termichatter.mpsc", function()
 
 		assert.are.equal("delayed", out.message)
 		assert.are.same({ "delayed" }, seen)
-		app:stop_segments()
+		app:close():await(200, 10)
 	end)
 
 	it("supports manual continuation by popping handoff queue payload", function()

@@ -122,7 +122,7 @@ function Run:execute()
 
 	-- past end: push to output
 	local output = rawget(self, "output") or (self.line and self.line.output)
-	if output then
+	if output and self.input ~= nil then
 		output:push(self.input)
 	end
 
@@ -140,7 +140,7 @@ function Run:next(element)
 		self:execute()
 	else
 		local output = rawget(self, "output") or (self.line and self.line.output)
-		if output then
+		if output and self.input ~= nil then
 			output:push(self.input)
 		end
 	end

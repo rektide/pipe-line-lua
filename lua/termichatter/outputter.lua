@@ -53,10 +53,10 @@ function M.buffer(config)
 				if not msg then
 					break
 				end
-				if protocol.isShutdown(msg) then
+				if protocol.is_shutdown_payload(msg) then
 					break
 				end
-				if not protocol.isCompletion(msg) then
+				if not protocol.is_completion_payload(msg) then
 					self:write(msg)
 				end
 			end
@@ -147,10 +147,10 @@ function M.fanout(config)
 				if not msg then
 					break
 				end
-				if protocol.isShutdown(msg) then
+				if protocol.is_shutdown_payload(msg) then
 					break
 				end
-				if not protocol.isCompletion(msg) then
+				if not protocol.is_completion_payload(msg) then
 					self:write(msg)
 				end
 			end

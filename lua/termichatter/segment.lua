@@ -4,8 +4,36 @@ local M = {}
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local util = require("termichatter.util")
 local logutil = require("termichatter.log")
+local protocol = require("termichatter.protocol")
 
 M.HANDOFF_FIELD = "__termichatter_handoff_run"
+
+--- Define a segment with default protocol behavior.
+--- By default protocol runs pass through and are not processed.
+---@param spec table
+---@return table segment
+function M.define(spec)
+	spec = spec or {}
+	local process_protocol = spec.process_protocol == true
+	local pass_protocol = spec.pass_protocol ~= false
+	local handler = spec.handler
+
+	spec.handler = function(run)
+		if protocol.is_protocol(run) and not process_protocol then
+			if pass_protocol then
+				return nil
+			end
+			return false
+		end
+
+		if type(handler) == "function" then
+			return handler(run)
+		end
+		return run.input
+	end
+
+	return spec
+end
 
 function M.mpsc_handoff_factory()
 	return {
@@ -17,7 +45,7 @@ function M.mpsc_handoff_factory()
 end
 
 --- Timestamper segment: add hrtime timestamp
-M.timestamper = {
+M.timestamper = M.define({
 	wants = {},
 	emits = { "time" },
 	---@param run table The run context
@@ -31,10 +59,10 @@ M.timestamper = {
 		end
 		return input
 	end,
-}
+})
 
 --- CloudEvent enricher segment: add id, source, type, specversion
-M.cloudevent = {
+M.cloudevent = M.define({
 	wants = {},
 	emits = { "cloudevent" },
 	---@param run table The run context
@@ -63,11 +91,11 @@ M.cloudevent = {
 
 		return input
 	end,
-}
+})
 
 --- Module filter segment: filter by source pattern
 --- Returns false to stop pipeline, input to continue
-M.module_filter = {
+M.module_filter = M.define({
 	wants = {},
 	emits = {},
 	handler = function(run)
@@ -99,11 +127,11 @@ M.module_filter = {
 
 	return input
 	end,
-}
+})
 
 --- Level filter segment: filter by log level
 --- Returns false to stop pipeline
-M.level_filter = {
+M.level_filter = M.define({
 	wants = {},
 	emits = {},
 	handler = function(run)
@@ -125,10 +153,10 @@ M.level_filter = {
 
 	return false
 	end,
-}
+})
 
 --- Ingester segment: apply custom decoration
-M.ingester = {
+M.ingester = M.define({
 	wants = {},
 	emits = {},
 	handler = function(run)
@@ -141,7 +169,67 @@ M.ingester = {
 
 	return input
 	end,
-}
+})
+
+--- Completion segment: track mpsc completion protocol on the line.
+M.completion = M.define({
+	type = "completion",
+	process_protocol = true,
+	wants = {},
+	emits = {},
+	ensure_prepared = function(self, context)
+		local line = context and context.line
+		if not line then
+			return
+		end
+
+		if type(line.done) ~= "table" or type(line.done.resolve) ~= "function" then
+			line.done = protocol.create_deferred()
+		end
+
+		if type(line._completion_state) ~= "table" then
+			line._completion_state = {
+				hello = 0,
+				done = 0,
+				resolved = false,
+			}
+		end
+	end,
+	handler = function(run)
+		if not protocol.is_completion(run) then
+			return run.input
+		end
+
+		local line = run.line
+		if not line then
+			return run.input
+		end
+
+		local state = line._completion_state
+		if not state then
+			state = { hello = 0, done = 0, resolved = false }
+			line._completion_state = state
+		end
+
+		local signal = run.mpsc_completion
+		if signal == protocol.COMPLETION_HELLO then
+			state.hello = state.hello + 1
+		elseif signal == protocol.COMPLETION_DONE or signal == protocol.COMPLETION_SHUTDOWN then
+			state.done = state.done + 1
+		end
+
+		if not state.resolved and state.done >= state.hello and type(line.done) == "table" then
+			state.resolved = true
+			line.done:resolve({
+				hello = state.hello,
+				done = state.done,
+				signal = signal,
+			})
+		end
+
+		return nil
+	end,
+})
 
 --- mpsc_handoff segment factory: enqueue continuation run and stop current run
 ---@param config? table { queue?: table, strategy?: 'self'|'clone'|'fork' }

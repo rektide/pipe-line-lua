@@ -253,7 +253,7 @@ app.pipe = require("termichatter.pipe")({
 app:info("async message")
 
 -- Optional cleanup when shutting down
-app:stop_segments()
+app:close():await(500, 10)
 
 -- Advanced control: disable auto-start and start later
 local delayed = termichatter({ autoStartConsumers = false })
@@ -334,18 +334,16 @@ Implements the [mpsc-completion](https://github.com/rektide/mpsc-completion) pro
 ```lua
 local protocol = require("termichatter.protocol")
 
--- Signal lifecycle
-app.output:push(protocol.hello)  -- producer starting
-app.output:push(protocol.done)   -- producer finished
+-- Build protocol runs (control is on run fields, not input)
+local hello = protocol.completion_run("hello", "worker:a")
+local done = protocol.completion_run("done", "worker:a")
 
--- Check signal
-protocol.isCompletion(msg)  -- true for hello/done/shutdown
-protocol.isShutdown(msg)    -- true for shutdown only
+-- Send lifecycle control through the pipeline
+app:run(hello)
+app:run(done)
 
--- Reference counting tracker
-local tracker = protocol.createTracker(app.output)
-tracker:hello()
-tracker:done()  -- emits shutdown when hello count == done count
+-- Close returns line.done deferred
+local settled = app:close():await(500, 10)
 ```
 
 ## Built-in Segment
@@ -357,6 +355,7 @@ tracker:done()  -- emits shutdown when hello count == done count
 | `module_filter` | — | — | Filter by source pattern (string or function) |
 | `level_filter` | — | — | Filter by log level |
 | `ingester` | — | — | Apply custom decoration function |
+| `completion` | — | — | Track completion protocol and resolve `line.done` |
 | `lattice_resolver` | — | — | Dependency injection via pipeline self-rewriting |
 
 Async boundary helper:

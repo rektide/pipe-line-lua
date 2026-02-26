@@ -28,11 +28,11 @@ function M.make_consumer(queue)
 				break
 			end
 
-			if protocol.isShutdown(msg) then
+			if protocol.is_shutdown_payload(msg) then
 				break
 			end
 
-			if protocol.isCompletion(msg) then
+			if protocol.is_completion_payload(msg) then
 				-- ignore completion signals on internal handoff queue
 			else
 				if type(msg) == "table" and msg[segment.HANDOFF_FIELD] then

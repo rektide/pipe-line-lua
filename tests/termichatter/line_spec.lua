@@ -175,6 +175,41 @@ describe("termichatter.line", function()
 
 			assert.are.equal(42, received.id)
 		end)
+
+		it("close returns line done deferred and resolves", function()
+			local line = Line({ registry = registry })
+
+			local done = line:close()
+			local resolved = done:await(200, 10)
+
+			assert.are.equal(done, line.done)
+			assert.is_not_nil(resolved)
+			assert.are.equal("done", resolved.signal)
+		end)
+
+		it("close is idempotent and returns same deferred", function()
+			local line = Line({ registry = registry })
+
+			local first = line:close()
+			local second = line:close()
+
+			assert.are.equal(first, second)
+			assert.is_not_nil(second:await(200, 10))
+		end)
+
+		it("protocol runs pass through filters by default", function()
+			local line = Line({
+				registry = registry,
+				pipe = { "level_filter", "completion" },
+				max_level = "error",
+			})
+
+			local done = line:close()
+			local resolved = done:await(200, 10)
+
+			assert.is_not_nil(resolved)
+			assert.are.equal("done", resolved.signal)
+		end)
 	end)
 
 	describe("pipe helpers", function()

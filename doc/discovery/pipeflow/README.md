@@ -259,7 +259,7 @@ end
 | `line:resolve(name)` | Resolve pipe from registry |
 | `line:logger(config)` | Create logger with priority method |
 | `line:prepare_segments()` | Prepare/start segment runtime hooks |
-| `line:stop_segments()` | Stop prepared segment runtime hooks |
+| `line:close()` | Send completion done and close prepared hooks |
 
 ### Registry
 

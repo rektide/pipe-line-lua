@@ -4,6 +4,7 @@ local inherit = require("termichatter.inherit")
 local Pipe = require("termichatter.pipe")
 local segment = require("termichatter.segment")
 local logutil = require("termichatter.log")
+local protocol = require("termichatter.protocol")
 local util = require("termichatter.util")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
@@ -17,6 +18,7 @@ Line.defaultSegment = {
 	"ingester",
 	"cloudevent",
 	"module_filter",
+	"completion",
 }
 
 local function shallow_copy(input)
@@ -139,15 +141,11 @@ function Line:prepare_segments()
 	return self
 end
 
---- Stop prepared segments.
---- Calls ensure_stopped(context) on each segment that exposes it.
---- This is safe to call repeatedly; segment hooks should be idempotent.
----@return table line
-function Line:stop_segments()
-	for pos = 1, #self.pipe do
-		local seg = self.pipe[pos]
+local function stop_prepared_segments(line)
+	for pos = 1, #line.pipe do
+		local seg = line.pipe[pos]
 		if type(seg) == "string" then
-			local resolved = self:resolve_segment(seg)
+			local resolved = line:resolve_segment(seg)
 			if resolved ~= nil and not util.is_segment_factory(resolved) then
 				seg = resolved
 			end
@@ -155,15 +153,61 @@ function Line:stop_segments()
 
 		if type(seg) == "table" and type(seg.ensure_stopped) == "function" then
 			seg:ensure_stopped({
-				line = self,
+				line = line,
 				pos = pos,
 				segment = seg,
 				force = true,
 			})
 		end
 	end
+end
 
-	return self
+local function has_completion_segment(line)
+	for pos = 1, #line.pipe do
+		local seg = line.pipe[pos]
+		if type(seg) == "string" then
+			local resolved = line:resolve_segment(seg)
+			if resolved ~= nil and not util.is_segment_factory(resolved) then
+				seg = resolved
+			end
+		end
+
+		if type(seg) == "table" and seg.type == "completion" then
+			return true
+		end
+	end
+
+	return false
+end
+
+--- Close this line and return the completion deferred.
+--- Sends a completion done protocol run through the pipeline.
+---@return table done Deferred completion handle with await()
+function Line:close()
+	self:prepare_segments()
+
+	if type(self.done) ~= "table" or type(self.done.resolve) ~= "function" then
+		self.done = protocol.create_deferred()
+	end
+
+	if not self._close_hooked then
+		self._close_hooked = true
+		self.done:on_resolve(function()
+			stop_prepared_segments(self)
+		end)
+	end
+
+	if not self._close_sent then
+		self._close_sent = true
+		local has_completion = has_completion_segment(self)
+		if has_completion then
+			self:run(protocol.completion_run(protocol.COMPLETION_DONE, self:full_source()))
+		else
+			self.done:resolve({ hello = 0, done = 1, signal = protocol.COMPLETION_DONE })
+		end
+	end
+
+	return self.done
 end
 
 --- Create a thin child line inheriting from this one.
