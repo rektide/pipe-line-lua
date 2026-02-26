@@ -12,29 +12,26 @@ describe("termichatter.protocol", function()
 		protocol = require("termichatter.protocol")
 	end)
 
-	it("queries completion state from protocol runs", function()
+	it("applies completion state from protocol runs", function()
 		local state = protocol.completion.create_completion_state()
 		assert.is_false(state.settled)
-		assert.is_false(state.resolved)
 		assert.is_nil(state.signal)
 		assert.is_nil(state.name)
 
-		assert.is_nil(protocol.completion.query_completion(state, { random = true }))
+		assert.is_false(protocol.completion.apply(state, { random = true }))
 
-		local hello = protocol.completion.query_completion(state, protocol.completion.completion_run("hello", "worker:a"))
-		assert.are.equal("hello", hello.signal)
-		assert.are.equal("worker:a", hello.name)
-		assert.are.equal(1, hello.hello)
-		assert.are.equal(0, hello.done)
-		assert.is_false(hello.settled)
-		assert.is_false(hello.resolved)
+		assert.is_true(protocol.completion.apply(state, protocol.completion.completion_run("hello", "worker:a")))
+		assert.are.equal("hello", state.signal)
+		assert.are.equal("worker:a", state.name)
+		assert.are.equal(1, state.hello)
+		assert.are.equal(0, state.done)
+		assert.is_false(state.settled)
 
-		local done = protocol.completion.query_completion(state, protocol.completion.completion_run("done", "worker:a"))
-		assert.are.equal("done", done.signal)
-		assert.are.equal(1, done.hello)
-		assert.are.equal(1, done.done)
-		assert.is_true(done.settled)
-		assert.is_false(done.resolved)
+		assert.is_true(protocol.completion.apply(state, protocol.completion.completion_run("done", "worker:a")))
+		assert.are.equal("done", state.signal)
+		assert.are.equal(1, state.hello)
+		assert.are.equal(1, state.done)
+		assert.is_true(state.settled)
 	end)
 
 	it("provides signal-specific helpers", function()
@@ -55,13 +52,12 @@ describe("termichatter.protocol", function()
 			type = "query_only_completion",
 			process_protocol = true,
 			ensure_prepared = function(self, context)
-				if not context.line._query_state then
-					context.line._query_state = protocol.completion.create_completion_state()
+				if not context.line.completion_state then
+					context.line.completion_state = protocol.completion.create_completion_state()
 				end
 			end,
 			handler = function(run)
-				local status = protocol.completion.query_completion(run.line._query_state, run)
-				if status and status.settled then
+				if protocol.completion.apply(run.line.completion_state, run) and run.line.completion_state.settled then
 					run.line.query_settled = true
 				end
 				return nil

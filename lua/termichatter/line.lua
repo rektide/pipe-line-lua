@@ -205,11 +205,10 @@ function Line:close()
 		if has_completion then
 			self:run(protocol.completion.completion_run(protocol.completion.COMPLETION_DONE, self:full_source()))
 		else
-			local state = self._completion_state or protocol.completion.create_completion_state()
-			self._completion_state = state
+			local state = self.completion_state or protocol.completion.create_completion_state()
+			self.completion_state = state
 			state.done = math.max(state.done + 1, state.hello)
 			state.settled = true
-			state.resolved = true
 			state.signal = protocol.completion.COMPLETION_DONE
 			state.name = self:full_source()
 			self.done:resolve(state)

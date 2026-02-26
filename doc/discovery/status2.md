@@ -5,7 +5,7 @@ Committed.
   And yes, I agree on unifying line.done with final state.
   Right now line.done resolves with completion counters/signal, while the run output/final payload is separate. A clean next step is to make line.done resolve a single canonical object like:
 - status: "done" | "shutdown" | "error"
-- completion: { hello, done, settled, resolved, signal }
+- completion: { hello, done, settled, signal }
 - final: final pipeline payload (if any)
 - source: line:full_source()
 - time: settle timestamp

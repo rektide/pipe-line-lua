@@ -85,7 +85,6 @@ function M.create_completion_state()
 		hello = 0,
 		done = 0,
 		settled = false,
-		resolved = false,
 		signal = nil,
 		name = nil,
 	}
@@ -93,11 +92,11 @@ end
 
 ---@param state table
 ---@param run table
----@return table|nil status
-function M.query_completion(state, run)
+---@return boolean applied
+function M.apply(state, run)
 	local signal = M.get_completion_signal(run)
 	if signal == nil then
-		return nil
+		return false
 	end
 
 	if signal == M.COMPLETION_HELLO then
@@ -110,7 +109,7 @@ function M.query_completion(state, run)
 	state.name = run[M.COMPLETION_NAME_FIELD]
 	state.settled = state.done >= state.hello
 
-	return state
+	return true
 end
 
 ---@param define fun(spec: table): table
@@ -131,8 +130,8 @@ function M.build_segment(define)
 				line.done = done.create_deferred()
 			end
 
-			if type(line._completion_state) ~= "table" then
-				line._completion_state = M.create_completion_state()
+			if type(line.completion_state) ~= "table" then
+				line.completion_state = M.create_completion_state()
 			end
 		end,
 		handler = function(run)
@@ -145,19 +144,18 @@ function M.build_segment(define)
 				return run.input
 			end
 
-			local state = line._completion_state
+			local state = line.completion_state
 			if not state then
 				state = M.create_completion_state()
-				line._completion_state = state
+				line.completion_state = state
 			end
 
-			local status = M.query_completion(state, run)
-			if not status then
+			local applied = M.apply(state, run)
+			if not applied then
 				return run.input
 			end
 
-			if not state.resolved and status.settled and type(line.done) == "table" then
-				state.resolved = true
+			if state.settled and type(line.done) == "table" and not line.done:is_resolved() then
 				line.done:resolve(state)
 			end
 

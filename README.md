@@ -347,8 +347,7 @@ local settled = app:close():await(500, 10)
 
 -- Or run protocol query logic yourself in custom segments
 local state = protocol.completion.create_completion_state()
-local status = protocol.completion.query_completion(state, protocol.completion.completion_run("hello", "worker:a"))
-if status and status.settled then
+if protocol.completion.apply(state, protocol.completion.completion_run("hello", "worker:a")) and state.settled then
     -- your custom completion behavior
 end
 ```
