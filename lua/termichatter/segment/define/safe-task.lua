@@ -1,5 +1,6 @@
-local task_core = require("termichatter.segment.define.task-core")
+local build_transport = require("termichatter.segment.define.transport")
+local task_transport = require("termichatter.segment.define.transport.task")
 
 return function(define)
-	return task_core(define, "safe")
+	return build_transport(define, task_transport.new("safe"))
 end
