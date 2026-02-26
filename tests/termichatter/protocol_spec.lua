@@ -16,6 +16,8 @@ describe("termichatter.protocol", function()
 		local state = protocol.completion.create_completion_state()
 		assert.is_false(state.settled)
 		assert.is_false(state.resolved)
+		assert.is_nil(state.signal)
+		assert.is_nil(state.name)
 
 		assert.is_nil(protocol.completion.query_completion(state, { random = true }))
 

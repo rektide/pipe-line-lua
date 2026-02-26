@@ -86,6 +86,8 @@ function M.create_completion_state()
 		done = 0,
 		settled = false,
 		resolved = false,
+		signal = nil,
+		name = nil,
 	}
 end
 
@@ -104,16 +106,11 @@ function M.query_completion(state, run)
 		state.done = state.done + 1
 	end
 
+	state.signal = signal
+	state.name = run[M.COMPLETION_NAME_FIELD]
 	state.settled = state.done >= state.hello
 
-	return {
-		signal = signal,
-		hello = state.hello,
-		done = state.done,
-		settled = state.settled,
-		resolved = state.resolved,
-		name = run[M.COMPLETION_NAME_FIELD],
-	}
+	return state
 end
 
 ---@param define fun(spec: table): table
@@ -161,11 +158,7 @@ function M.build_segment(define)
 
 			if not state.resolved and status.settled and type(line.done) == "table" then
 				state.resolved = true
-				line.done:resolve({
-					hello = status.hello,
-					done = status.done,
-					signal = status.signal,
-				})
+				line.done:resolve(state)
 			end
 
 			return nil
