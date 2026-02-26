@@ -14,6 +14,57 @@ local function is_task_active(task)
 	return true
 end
 
+local function await_task_stopped(task, timeout, interval)
+	if not task then
+		return true
+	end
+
+	local ok, err = pcall(function()
+		task:await(timeout or 200, interval or 10)
+	end)
+
+	if not ok and not tostring(err):match("cancelled") then
+		error(err, 0)
+	end
+
+	return true
+end
+
+local function attach_async_runner(out, queue)
+	function out:start()
+		while true do
+			local msg = queue:pop()
+			if not msg then
+				break
+			end
+			self:write(msg)
+		end
+	end
+
+	function out:start_async()
+		if is_task_active(self._task) then
+			return self._task
+		end
+		self._task = coop.spawn(function()
+			self:start()
+		end)
+		return self._task
+	end
+
+	function out:await_stopped(timeout, interval)
+		local task = self._task
+		self._task = nil
+		return await_task_stopped(task, timeout, interval)
+	end
+
+	function out:stop(timeout, interval)
+		if is_task_active(self._task) then
+			self._task:cancel()
+		end
+		return self:await_stopped(timeout, interval)
+	end
+end
+
 --- Buffer outputter: write to nvim buffer
 ---@param config table { bufnr?: number, n?: number, name?: string, format?: function, inspect?: function, queue?: table }
 ---@return table outputter
@@ -57,32 +108,7 @@ function M.buffer(config)
 	}
 
 	if queue then
-		function out:start()
-			while true do
-				local msg = queue:pop()
-				if not msg then
-					break
-				end
-				self:write(msg)
-			end
-		end
-
-		function out:start_async()
-			if is_task_active(self._task) then
-				return self._task
-			end
-			self._task = coop.spawn(function()
-				self:start()
-			end)
-			return self._task
-		end
-
-		function out:stop()
-			if is_task_active(self._task) then
-				self._task:cancel()
-			end
-			self._task = nil
-		end
+		attach_async_runner(out, queue)
 	end
 
 	return out
@@ -163,32 +189,7 @@ function M.fanout(config)
 	}
 
 	if queue then
-		function out:start()
-			while true do
-				local msg = queue:pop()
-				if not msg then
-					break
-				end
-				self:write(msg)
-			end
-		end
-
-		function out:start_async()
-			if is_task_active(self._task) then
-				return self._task
-			end
-			self._task = coop.spawn(function()
-				self:start()
-			end)
-			return self._task
-		end
-
-		function out:stop()
-			if is_task_active(self._task) then
-				self._task:cancel()
-			end
-			self._task = nil
-		end
+		attach_async_runner(out, queue)
 	end
 
 	return out

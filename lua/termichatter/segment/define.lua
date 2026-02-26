@@ -1,6 +1,8 @@
 local protocol = require("termichatter.protocol")
 
-return function(spec)
+local M = {}
+
+function M.define(spec)
 	spec = spec or {}
 	local process_protocol = spec.process_protocol == true
 	local pass_protocol = spec.pass_protocol ~= false
@@ -22,3 +24,5 @@ return function(spec)
 
 	return spec
 end
+
+return M

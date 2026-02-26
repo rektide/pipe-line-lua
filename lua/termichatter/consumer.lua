@@ -16,6 +16,22 @@ local function is_task_active(task)
 	return true
 end
 
+local function await_task_stopped(task, timeout, interval)
+	if not task then
+		return true
+	end
+
+	local ok, err = pcall(function()
+		task:await(timeout or 200, interval or 10)
+	end)
+
+	if not ok and not tostring(err):match("cancelled") then
+		error(err, 0)
+	end
+
+	return true
+end
+
 --- Create a consumer for a single mpsc queue
 ---@param queue table The MpscQueue to consume from
 ---@return function consumer The consumer coroutine function
@@ -94,6 +110,7 @@ function M.stop_queue_consumer(line, queue)
 	if task and is_task_active(task) then
 		task:cancel()
 	end
+	await_task_stopped(task)
 	line._consumer_task_by_queue[queue] = nil
 
 	local active_task_list = {}
@@ -105,6 +122,13 @@ function M.stop_queue_consumer(line, queue)
 		end
 	end
 	line._consumer_task = active_task_list
+end
+
+--- Start async consumers for all handoff queues in a line.
+---@param line table
+---@return table[] task
+function M.start_async(line)
+	return M.start_consumer(line)
 end
 
 --- Start consumer for all explicit async queue boundaries in a line
@@ -143,7 +167,7 @@ end
 
 --- Stop all consumer for a line
 ---@param line table The line to stop consumer for
-function M.stop_consumer(line)
+function M.stop_consumer(line, timeout, interval)
 	if not line._consumer_task then
 		return
 	end
@@ -154,8 +178,35 @@ function M.stop_consumer(line)
 		end
 	end
 
+	M.await_stopped(line, timeout, interval)
+
 	line._consumer_task = {}
 	line._consumer_task_by_queue = {}
+end
+
+--- Await all tracked consumer tasks to stop.
+---@param line table
+---@param timeout? number
+---@param interval? number
+---@return boolean
+function M.await_stopped(line, timeout, interval)
+	if not line._consumer_task then
+		return true
+	end
+
+	for _, task in ipairs(line._consumer_task) do
+		await_task_stopped(task, timeout, interval)
+	end
+
+	return true
+end
+
+--- Stop all consumers using normalized lifecycle name.
+---@param line table
+---@param timeout? number
+---@param interval? number
+function M.stop(line, timeout, interval)
+	M.stop_consumer(line, timeout, interval)
 end
 
 return M

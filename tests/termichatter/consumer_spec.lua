@@ -24,16 +24,6 @@ describe("termichatter.consumer", function()
 	end
 
 	describe("make_consumer", function()
-		local function stop_task(task)
-			task:cancel()
-			local ok, err = pcall(function()
-				task:await(200, 10)
-			end)
-			if not ok and not tostring(err):match("cancelled") then
-				error(err, 0)
-			end
-		end
-
 		it("processes enqueued continuation runs", function()
 			local processed = false
 			registry:register("marker", { handler = function(run)
@@ -45,15 +35,14 @@ describe("termichatter.consumer", function()
 			local handoff = segment.mpsc_handoff({ queue = queue })
 			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
 
-			local consume = consumer.make_consumer(queue)
-			local task = coop.spawn(consume)
+			consumer.ensure_queue_consumer(l, queue)
 
 			l:log({ message = "test" })
 
 			vim.wait(100, function()
 				return processed
 			end, 10)
-			stop_task(task)
+			consumer.stop_queue_consumer(l, queue)
 			assert.is_true(processed)
 		end)
 
@@ -72,13 +61,12 @@ describe("termichatter.consumer", function()
 			r:execute()
 			r.pos = 99
 
-			local consume = consumer.make_consumer(queue)
-			local task = coop.spawn(consume)
+			consumer.ensure_queue_consumer(l, queue)
 
 			local msg = coop.spawn(function()
 				return l.output:pop()
 			end):await(50, 10)
-			stop_task(task)
+			consumer.stop_queue_consumer(l, queue)
 			assert.is_nil(msg.marker)
 		end)
 
@@ -97,13 +85,12 @@ describe("termichatter.consumer", function()
 			r:execute()
 			r.pos = 99
 
-			local consume = consumer.make_consumer(queue)
-			local task = coop.spawn(consume)
+			consumer.ensure_queue_consumer(l, queue)
 
 			local msg = coop.spawn(function()
 				return l.output:pop()
 			end):await(50, 10)
-			stop_task(task)
+			consumer.stop_queue_consumer(l, queue)
 			assert.is_true(msg.marker)
 		end)
 
@@ -126,29 +113,28 @@ describe("termichatter.consumer", function()
 			r:execute()
 			l.pipe:splice(2, 1, "replacement")
 
-			local consume = consumer.make_consumer(queue)
-			local task = coop.spawn(consume)
+			consumer.ensure_queue_consumer(l, queue)
 
 			local msg = coop.spawn(function()
 				return l.output:pop()
 			end):await(50, 10)
-			stop_task(task)
+			consumer.stop_queue_consumer(l, queue)
 			assert.is_true(msg.marker)
 			assert.is_nil(msg.replacement)
 		end)
 	end)
 
-	describe("start_consumer / stop_consumer", function()
+	describe("start_async / stop / await_stopped", function()
 		it("starts and stops consumers for handoff segments", function()
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue })
 			local l = make_line({ handoff })
 
-			local task_list = consumer.start_consumer(l)
+			local task_list = consumer.start_async(l)
 			assert.are.equal(1, #task_list)
 			assert.is_not_nil(l._consumer_task_by_queue[queue])
 
-			consumer.stop_consumer(l)
+			consumer.stop(l)
 			assert.are.equal(0, #l._consumer_task)
 			assert.is_nil(next(l._consumer_task_by_queue))
 		end)
@@ -158,14 +144,14 @@ describe("termichatter.consumer", function()
 			local handoff = segment.mpsc_handoff({ queue = queue })
 			local l = make_line({ handoff })
 
-			local first = consumer.start_consumer(l)
+			local first = consumer.start_async(l)
 			assert.are.equal(1, #first)
 
-			local second = consumer.start_consumer(l)
+			local second = consumer.start_async(l)
 			assert.are.equal(1, #second)
 			assert.are.equal(first[1], second[1])
 
-			consumer.stop_consumer(l)
+			consumer.stop(l)
 		end)
 
 		it("starts only newly discovered handoff queues on later calls", function()
@@ -174,16 +160,27 @@ describe("termichatter.consumer", function()
 			local handoff1 = segment.mpsc_handoff({ queue = queue1 })
 			local l = make_line({ handoff1 })
 
-			local first = consumer.start_consumer(l)
+			local first = consumer.start_async(l)
 			assert.are.equal(1, #first)
 
 			l:addHandoff(2, { queue = queue2 })
-			local second = consumer.start_consumer(l)
+			local second = consumer.start_async(l)
 			assert.are.equal(2, #second)
 			assert.is_not_nil(l._consumer_task_by_queue[queue1])
 			assert.is_not_nil(l._consumer_task_by_queue[queue2])
 
-			consumer.stop_consumer(l)
+			consumer.stop(l)
+		end)
+
+		it("await_stopped resolves after cancel", function()
+			local queue = MpscQueue.new()
+			local handoff = segment.mpsc_handoff({ queue = queue })
+			local l = make_line({ handoff })
+
+			consumer.start_async(l)
+			consumer.stop(l)
+
+			assert.is_true(consumer.await_stopped(l, 200, 10))
 		end)
 	end)
 end)

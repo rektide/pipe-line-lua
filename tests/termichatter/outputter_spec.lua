@@ -1,5 +1,4 @@
 --- Busted tests for termichatter outputter queue semantics
-local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 describe("termichatter.outputter", function()
@@ -11,7 +10,7 @@ describe("termichatter.outputter", function()
 	end)
 
 	describe("buffer outputter", function()
-		it("writes queued messages until consumer task is canceled", function()
+		it("writes queued messages via normalized async lifecycle", function()
 			local queue = MpscQueue.new()
 			local bufnr = vim.api.nvim_create_buf(false, true)
 
@@ -23,9 +22,7 @@ describe("termichatter.outputter", function()
 				end,
 			})
 
-			local task = coop.spawn(function()
-				out:start()
-			end)
+			local task = out:start_async()
 
 			queue:push({ message = "one" })
 			queue:push({ message = "two" })
@@ -35,13 +32,9 @@ describe("termichatter.outputter", function()
 				return #lines >= 2
 			end, 10)
 
-			task:cancel()
-			local ok, err = pcall(function()
-				task:await(200, 10)
-			end)
-			if not ok and not tostring(err):match("cancelled") then
-				error(err, 0)
-			end
+			out:stop()
+			assert.is_true(out:await_stopped(200, 10))
+			assert.is_table(task)
 
 			local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 			assert.are.equal("one", lines[#lines - 1])

@@ -9,7 +9,7 @@ local define = require("termichatter.segment.define")
 
 M.HANDOFF_FIELD = "__termichatter_handoff_run"
 
-M.define = define
+M.define = define.define
 
 function M.mpsc_handoff_factory()
 	return {
