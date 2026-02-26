@@ -1,19 +1,19 @@
 describe("termichatter.stopped_live", function()
-	local Line, registry, done
+	local Line, registry, Future
 
 	before_each(function()
 		package.loaded["termichatter.line"] = nil
 		package.loaded["termichatter.registry"] = nil
 		package.loaded["termichatter.segment"] = nil
-		package.loaded["termichatter.done"] = nil
+		package.loaded["coop.future"] = nil
 		Line = require("termichatter.line")
 		registry = require("termichatter.registry")
-		done = require("termichatter.done")
+		Future = require("coop.future").Future
 	end)
 
 	it("awaits matching segment stopped handles including newly added segments", function()
-		local d1 = done.create_deferred()
-		local d2 = done.create_deferred()
+		local d1 = Future.new()
+		local d2 = Future.new()
 
 		local line = Line({ registry = registry, pipe = {} })
 		line:addSegment({
@@ -29,8 +29,8 @@ describe("termichatter.stopped_live", function()
 			handler = function(run) return run.input end,
 		})
 
-		d1:resolve(true)
-		d2:resolve(true)
+		d1:complete(true)
+		d2:complete(true)
 		line:ensure_stopped()
 
 		local resolved = live:await(400, 10)
@@ -39,7 +39,7 @@ describe("termichatter.stopped_live", function()
 	end)
 
 	it("sees matching stopped handles added after start", function()
-		local d = done.create_deferred()
+		local d = Future.new()
 		local line = Line({ registry = registry, pipe = {} })
 
 		local live = line:stopped_live("probe")
@@ -50,7 +50,7 @@ describe("termichatter.stopped_live", function()
 				init = function() return d end,
 				handler = function(run) return run.input end,
 			})
-			d:resolve(true)
+			d:complete(true)
 			line:ensure_stopped()
 		end, 10)
 
@@ -60,7 +60,7 @@ describe("termichatter.stopped_live", function()
 	end)
 
 	it("deduplicates identical awaitables across matching segments", function()
-		local shared = done.create_deferred()
+		local shared = Future.new()
 		local line = Line({ registry = registry, pipe = {} })
 
 		line:addSegment({
@@ -75,7 +75,7 @@ describe("termichatter.stopped_live", function()
 		})
 
 		local live = line:stopped_live("probe")
-		vim.defer_fn(function() shared:resolve(true) end, 20)
+		vim.defer_fn(function() shared:complete(true) end, 20)
 		vim.defer_fn(function() line:ensure_stopped() end, 25)
 
 		local resolved = live:await(400, 10)

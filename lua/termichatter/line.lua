@@ -6,7 +6,7 @@ local coop = require("coop")
 local cooputil = require("termichatter.coop")
 local segment = require("termichatter.segment")
 local logutil = require("termichatter.log")
-local done = require("termichatter.done")
+local Future = require("coop.future").Future
 local util = require("termichatter.util")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
@@ -29,6 +29,39 @@ local function shallow_copy(input)
 		out[k] = v
 	end
 	return out
+end
+
+local function is_awaitable_done(awaited)
+	if type(awaited) ~= "table" then
+		return true
+	end
+
+	if type(awaited.is_resolved) == "function" then
+		return awaited:is_resolved()
+	end
+
+	return awaited.done == true
+end
+
+local function on_awaitable_done(awaited, callback)
+	if type(awaited) ~= "table" or type(awaited.await) ~= "function" then
+		callback()
+		return
+	end
+
+	local ok = pcall(function()
+		awaited:await(function()
+			callback()
+		end)
+	end)
+	if ok then
+		return
+	end
+
+	coop.spawn(function()
+		cooputil.await_all({ awaited })
+		callback()
+	end)
 end
 
 local function next_segment_id(line)
@@ -306,28 +339,26 @@ local function stop_prepared_segments(line)
 	return tasks
 end
 
---- Return a deferred that settles when matching segment.stopped awaitables
+--- Return a future that settles when matching segment.stopped awaitables
 --- (including new ones discovered in later selector passes) resolve.
 ---@param selector? string|function Segment type or predicate
----@return table stopped_live Deferred with await()
+---@return table stopped_live Future with await()
 function Line:stopped_live(selector)
-	local stopped_live = done.create_deferred()
+	local stopped_live = Future.new()
 	local seen = {}
 	local pending = 0
 	local pump_scheduled = false
 
 	local function line_is_stopped()
-		return type(self.stopped) == "table"
-			and type(self.stopped.is_resolved) == "function"
-			and self.stopped:is_resolved()
+		return is_awaitable_done(self.stopped)
 	end
 
 	local function maybe_resolve()
-		if stopped_live:is_resolved() then
+		if stopped_live.done then
 			return
 		end
 		if line_is_stopped() and pending == 0 then
-			stopped_live:resolve({ stopped = true, source = self:full_source() })
+			stopped_live:complete({ stopped = true, source = self:full_source() })
 		end
 	end
 
@@ -345,25 +376,17 @@ function Line:stopped_live(selector)
 		end
 		seen[awaited] = true
 
-		if type(awaited.is_resolved) == "function" and awaited:is_resolved() then
+		if is_awaitable_done(awaited) then
 			return
 		end
 
 		pending = pending + 1
-		if type(awaited.on_resolve) == "function" then
-			awaited:on_resolve(on_settled)
-			return
-		end
-
-		coop.spawn(function()
-			cooputil.await_all({ awaited })
-			on_settled()
-		end)
+		on_awaitable_done(awaited, on_settled)
 	end
 
 	local function pump()
 		pump_scheduled = false
-		if stopped_live:is_resolved() then
+		if stopped_live.done then
 			return
 		end
 
@@ -376,14 +399,14 @@ function Line:stopped_live(selector)
 		end
 
 		maybe_resolve()
-		if not stopped_live:is_resolved() and not line_is_stopped() and not pump_scheduled then
+		if not stopped_live.done and not line_is_stopped() and not pump_scheduled then
 			pump_scheduled = true
 			vim.defer_fn(pump, 25)
 		end
 	end
 
-	if type(self.stopped) == "table" and type(self.stopped.on_resolve) == "function" then
-		self.stopped:on_resolve(function()
+	if type(self.stopped) == "table" then
+		on_awaitable_done(self.stopped, function()
 			pump()
 		end)
 	end
@@ -394,25 +417,25 @@ function Line:stopped_live(selector)
 end
 
 --- Ensure segments are stopped and resolve line.stopped when done.
----@return table stopped Deferred stop handle with await()
+---@return table stopped Future stop handle with await()
 function Line:ensure_stopped()
-	if type(self.stopped) ~= "table" or type(self.stopped.resolve) ~= "function" then
-		self.stopped = done.create_deferred()
+	if type(self.stopped) ~= "table" or type(self.stopped.complete) ~= "function" then
+		self.stopped = Future.new()
 	end
 
-	if self.stopped:is_resolved() then
+	if is_awaitable_done(self.stopped) then
 		return self.stopped
 	end
 
 	local tasks = stop_prepared_segments(self)
 	cooputil.await_all(tasks)
-	self.stopped:resolve({ stopped = true, source = self:full_source() })
+	self.stopped:complete({ stopped = true, source = self:full_source() })
 	return self.stopped
 end
 
---- Close this line and return the stopped deferred.
+--- Close this line and return the stopped future.
 --- Ensures prepared state, then runs ensure_stopped lifecycle.
----@return table stopped Deferred stop handle with await()
+---@return table stopped Future stop handle with await()
 function Line:close()
 	self:ensure_prepared()
 	return self:ensure_stopped()
@@ -569,7 +592,7 @@ local function new_line(config)
 	if config.stopped ~= nil then
 		instance.stopped = config.stopped
 	else
-		instance.stopped = done.create_deferred()
+		instance.stopped = Future.new()
 	end
 
 	if config.auto_completion_done_on_close ~= nil then

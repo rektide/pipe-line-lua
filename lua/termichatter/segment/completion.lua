@@ -1,6 +1,6 @@
 --- Completion protocol helpers and completion segment.
 local M = {}
-local done = require("termichatter.done")
+local Future = require("coop.future").Future
 
 M.PROTOCOL_FIELD = "termichatter_protocol"
 M.COMPLETION_FIELD = "mpsc_completion"
@@ -91,8 +91,8 @@ function M.ensure_completion_state(state)
 	if type(state.settled) ~= "boolean" then
 		state.settled = false
 	end
-	if type(state.stopped) ~= "table" or type(state.stopped.resolve) ~= "function" then
-		state.stopped = done.create_deferred()
+	if type(state.stopped) ~= "table" or type(state.stopped.complete) ~= "function" then
+		state.stopped = Future.new()
 	end
 	if state.signal == nil then
 		state.signal = nil
@@ -183,11 +183,11 @@ function M.build_segment(define)
 			end
 
 			if state.settled then
-				if type(state.stopped) == "table" and not state.stopped:is_resolved() then
-					state.stopped:resolve(state)
+				if type(state.stopped) == "table" and not state.stopped.done then
+					state.stopped:complete(state)
 				end
-				if run.line and type(run.line.done) == "table" and not run.line.done:is_resolved() then
-					run.line.done:resolve(state)
+				if run.line and type(run.line.done) == "table" and not run.line.done.done then
+					run.line.done:complete(state)
 				end
 			end
 

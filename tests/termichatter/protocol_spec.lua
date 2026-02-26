@@ -43,7 +43,7 @@ describe("termichatter.protocol", function()
 		assert.are.equal(4, state.done)
 		assert.is_false(state.settled)
 		assert.is_not_nil(state.stopped)
-		assert.is_function(state.stopped.resolve)
+		assert.is_function(state.stopped.complete)
 	end)
 
 	it("provides signal-specific helpers", function()
