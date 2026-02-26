@@ -4,37 +4,12 @@ local M = {}
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 local util = require("termichatter.util")
 local logutil = require("termichatter.log")
-local protocol = require("termichatter.protocol")
 local completion = require("termichatter.segment.completion")
+local define = require("termichatter.segment.define")
 
 M.HANDOFF_FIELD = "__termichatter_handoff_run"
 
---- Define a segment with default protocol behavior.
---- By default protocol runs pass through and are not processed.
----@param spec table
----@return table segment
-function M.define(spec)
-	spec = spec or {}
-	local process_protocol = spec.process_protocol == true
-	local pass_protocol = spec.pass_protocol ~= false
-	local handler = spec.handler
-
-	spec.handler = function(run)
-		if protocol.completion.is_protocol(run) and not process_protocol then
-			if pass_protocol then
-				return nil
-			end
-			return false
-		end
-
-		if type(handler) == "function" then
-			return handler(run)
-		end
-		return run.input
-	end
-
-	return spec
-end
+M.define = define
 
 function M.mpsc_handoff_factory()
 	return {
