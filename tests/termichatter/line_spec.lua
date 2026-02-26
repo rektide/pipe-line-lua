@@ -180,7 +180,8 @@ describe("termichatter.line", function()
 		end)
 
 		it("close returns line done deferred and resolves", function()
-			local line = Line({ registry = registry })
+			local segment = require("termichatter.segment")
+			local line = Line({ registry = registry, pipe = { segment.completion } })
 
 			local done = line:close()
 			local resolved = done:await(200, 10)
@@ -188,6 +189,8 @@ describe("termichatter.line", function()
 			assert.are.equal(done, line.done)
 			assert.is_not_nil(resolved)
 			assert.are.equal("done", resolved.signal)
+			assert.is_true(line.done:is_resolved())
+			assert.is_true(line._completion_state.resolved)
 		end)
 
 		it("close is idempotent and returns same deferred", function()

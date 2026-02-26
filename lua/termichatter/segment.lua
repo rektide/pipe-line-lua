@@ -189,7 +189,6 @@ M.completion = M.define({
 
 		if type(line._completion_state) ~= "table" then
 			line._completion_state = protocol.create_completion_state()
-			line._completion_state.resolved = false
 		end
 	end,
 	handler = function(run)
@@ -205,7 +204,6 @@ M.completion = M.define({
 		local state = line._completion_state
 		if not state then
 			state = protocol.create_completion_state()
-			state.resolved = false
 			line._completion_state = state
 		end
 

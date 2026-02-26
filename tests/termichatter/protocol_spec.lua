@@ -14,6 +14,8 @@ describe("termichatter.protocol", function()
 
 	it("queries completion state from protocol runs", function()
 		local state = protocol.create_completion_state()
+		assert.is_false(state.settled)
+		assert.is_false(state.resolved)
 
 		assert.is_nil(protocol.query_completion(state, { random = true }))
 
@@ -23,12 +25,14 @@ describe("termichatter.protocol", function()
 		assert.are.equal(1, hello.hello)
 		assert.are.equal(0, hello.done)
 		assert.is_false(hello.settled)
+		assert.is_false(hello.resolved)
 
 		local done = protocol.query_completion(state, protocol.completion_run("done", "worker:a"))
 		assert.are.equal("done", done.signal)
 		assert.are.equal(1, done.hello)
 		assert.are.equal(1, done.done)
 		assert.is_true(done.settled)
+		assert.is_false(done.resolved)
 	end)
 
 	it("provides signal-specific helpers", function()
