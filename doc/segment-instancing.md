@@ -8,7 +8,7 @@ References:
 
 ## Why Instancing Exists
 
-Registry entries are often shared prototype tables. Runtime behavior needs per-line state (ids, deferreds, counters) without mutating shared singletons.
+Registry entries are often shared prototype tables. Runtime behavior needs per-line state (ids, futures, counters) without mutating shared singletons.
 
 The line runtime resolves segment names into instances and caches those instances per pipe slot.
 
@@ -37,4 +37,6 @@ Segment selection APIs are documented in [`/doc/selecting.md`](/doc/selecting.md
 
 When a segment instance is materialized/added, `init(context)` may run and can initialize line-bound resources.
 
-If `init` returns a deferred/task and `seg.stopped` is unset, the return value is stored as `seg.stopped` and later awaited by `line:ensure_stopped()`.
+If `init` returns an awaitable (future/task) and `seg.stopped` is unset, the return value is stored as `seg.stopped` and later awaited by `line:ensure_stopped()`.
+
+`init` is also the preferred place for per-instance default initialization (for example queue/future/state creation) when those defaults should not be shared across all lines.

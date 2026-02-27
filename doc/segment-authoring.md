@@ -51,6 +51,16 @@ registry:register("my_segment", {
 })
 ```
 
+## Segment Layers
+
+Segment behavior is easiest to reason about in three layers:
+
+1. **Spec layer**: static table fields (`type`, `wants`, `emits`, handler references).
+2. **Instance layer**: per-line state initialization in `init(context)`.
+3. **Run layer**: per-message behavior in `handler(run)`.
+
+Use `init` for per-instance defaults and runtime state (queues, futures, counters), not shared prototype mutation.
+
 ## Lifecycle Hooks
 
 The line runtime can call:
@@ -59,13 +69,13 @@ The line runtime can call:
 - `ensure_prepared(context)`
 - `ensure_stopped(context)`
 
-Context includes:
+Context includes hook-specific keys:
 
-- `line`
-- `pos`
-- `segment`
-- `done`
-- `stopped`
+- `init(context)`: `line`, `pos`, `segment`
+- `ensure_prepared(context)`: `line`, `pos`, `segment`, `force` (line lifecycle path)
+- `ensure_stopped(context)`: `line`, `pos`, `segment`, `force` (line lifecycle path)
+
+`run:execute()` may call `ensure_prepared` with `line`, `run`, `pos`, `segment`.
 
 `ensure_prepared` and `ensure_stopped` are expected to be idempotent.
 
@@ -88,6 +98,8 @@ local my_segment = define({
   end,
 })
 ```
+
+`segment.define` is the core segment contract utility. Transport-specific wrappers (task/mpsc variants) should compose on top of this contract rather than redefine segment lifecycle semantics.
 
 ## Segment Runtime Identity
 

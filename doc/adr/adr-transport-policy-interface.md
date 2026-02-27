@@ -1,71 +1,87 @@
-# ADR: Transport Policy Interface Shape
+# ADR: Transport Policy Interface on Top of Core Segment Contract
 
-- Status: Accepted
+- Status: Proposed
 - Date: 2026-02-27
 - Decision makers: termichatter maintainers
 
 ## Decision
 
-Async segment wrappers (`defineMpsc`, `defineSafeTask`, `defineTask`) will be built from a shared transport skeleton plus injected transport policy objects.
+Transport wrappers (`defineMpsc`, `defineSafeTask`, `defineTask`) must build on the core segment contract from [`/lua/termichatter/segment/define.lua`](/lua/termichatter/segment/define.lua), not introduce parallel segment-shape rules.
 
-The policy interface is the stable extension seam.
+Transport policy should be narrowly scoped to dispatch/runtime behavior.
+
+`configure_segment` is removed from policy interface.
 
 ## Context
 
-Recent refactors reduced wrapper size but still needed a clear, explicit contract for which logic is shared and which is transport-specific.
+The current transport decomposition improved readability but still carried a policy hook (`configure_segment`) that conflates concerns:
 
-Relevant implementation files:
+- spec-time segment shape/defaults
+- instance-time state initialization
+- run-time dispatch behavior
 
-- [`/lua/termichatter/segment/define/transport.lua`](/lua/termichatter/segment/define/transport.lua)
-- [`/lua/termichatter/segment/define/transport/mpsc.lua`](/lua/termichatter/segment/define/transport/mpsc.lua)
-- [`/lua/termichatter/segment/define/transport/task.lua`](/lua/termichatter/segment/define/transport/task.lua)
-- [`/lua/termichatter/segment/define/common.lua`](/lua/termichatter/segment/define/common.lua)
+Base docs already indicate these are separate layers:
 
-## Policy contract
+- segment authoring: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
+- instancing model: [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
 
-Each policy object should implement the following shape:
+## Core segment contract (unchanged)
 
-- `type: string` transport identity (for example `mpsc`, `safe_task`, `task`)
-- `configure_segment(segment)` optional segment defaults
+Segment contract remains centered on:
+
+- `init(context)`
+- `ensure_prepared(context)`
+- `handler(run)`
+- `ensure_stopped(context)`
+
+`init` is the preferred place for per-instance defaults/state setup.
+
+## Transport policy contract (proposed)
+
+Transport policy objects should expose:
+
+- `type: string` (transport identity, for example `mpsc`, `safe_task`, `task`)
 - `ensure_prepared(segment, context, runtime) -> awaitable|awaitable[]|nil`
 - `dispatch(segment, run, continuation, runtime)`
 - `ensure_stopped(segment, context, runtime) -> awaitable|awaitable[]|nil`
 
-`runtime` currently provides:
+No `configure_segment` hook.
 
-- `wrapped_handler`
-- `handler_generator`
+## Boundary of responsibilities
 
-Additional runtime fields may be added intentionally, with this ADR as the source of truth.
-
-## Naming decision
-
-Transport identity should be represented by `type`, not `mode`.
-
-- `mode` is considered a private compatibility detail where still present.
-- New callsites and docs should describe transport by `type`.
+- **Segment spec defaults**: set in segment table construction/wrapper constructor.
+- **Per-instance defaults**: set in `init`.
+- **Transport runtime behavior**: transport policy hooks above.
+- **Protocol wrapping**: stays in [`/lua/termichatter/segment/define.lua`](/lua/termichatter/segment/define.lua).
 
 ## Rationale
 
-- Makes shared lifecycle explicit and transport behavior injectable.
-- Keeps wrappers tiny and declarative.
-- Lets us add transports without changing wrapper skeleton logic.
-- Provides a concrete review checklist for new transport policies.
+- Keeps transport policies focused and auditable.
+- Avoids hidden spec mutation paths.
+- Aligns transport wrappers with documented segment lifecycle model.
+- Makes `init` the single canonical instance-setup hook.
 
 ## Consequences
 
 Positive:
 
-- Better readability and traceability of async behavior.
-- Easier targeted testing per transport policy.
-- Reduced need for large procedural wrapper modules.
+- clearer authoring model from base docs to transport wrappers
+- fewer places where defaults can be unexpectedly injected
+- easier review of transport logic (dispatch + lifecycle only)
 
 Tradeoffs:
 
-- Requires discipline to keep policy shape consistent.
-- Runtime context growth must be controlled to avoid hidden coupling.
+- wrapper constructors may need to be explicit about required defaults
+- some existing code paths using `configure_segment` need migration
+
+## Implementation direction
+
+1. Update transport builder in [`/lua/termichatter/segment/define/transport.lua`](/lua/termichatter/segment/define/transport.lua) to remove `configure_segment` calls.
+2. Move any remaining default injection into wrapper construction and/or `init` methods.
+3. Keep transport policies focused on `ensure_prepared`, `dispatch`, `ensure_stopped`.
+4. Update segment docs/examples to show `init`-based state creation where needed.
 
 ## Deferred / not decided
 
-- Whether transport policies should expose optional metrics hooks in this interface.
-- Whether `type` should be mandatory at runtime validation boundaries.
+- whether transport `type` should be validated at runtime in debug mode
+- whether transport metrics hooks should be part of `runtime` contract
