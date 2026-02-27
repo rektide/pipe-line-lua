@@ -9,9 +9,15 @@
 For task-based async segment transports, default stop behavior is **drain-first**.
 
 - `ensure_stopped` should wait for full pending-drain completion by default.
-- `cancel_immediate` is an explicit opt-in behavior, not the default.
+- `stop_immediate` is an explicit opt-in behavior, not the default.
 
 We also introduce an explicit cancel signal concept with optional acknowledgement chaining.
+
+Stop strategy naming and config:
+
+- strategy field: `stop_type`
+- allowed values: `"stop_drain" | "stop_immediate"`
+- default: `stop_type = "stop_drain"`
 
 ## Context
 
@@ -33,20 +39,33 @@ Relevant files:
 
 Task transport state should separate at least these completion concepts:
 
-- `drain_done`: all queued continuations acknowledged
-- `cancel_done`: cancel signal observed and acknowledged by worker
-- `stopped_done`: runner fully stopped
+- `stopped_drain`: drain completion signal
+- `stopped_immediate`: immediate-stop completion signal
+- `stopped`: aggregate stop completion signal
+
+These `stopped_*` values:
+
+- are state signals, not actions
+- are created lazily on demand
+- do not imply procedure execution on read
+
+Action verbs are separate procedures:
+
+- `ensure_drain(...)` performs drain semantics
+- `ensure_immediate(...)` performs immediate-stop semantics
 
 Default `ensure_stopped` behavior:
 
 1. issue cancel signal
-2. allow normal drain path to finish (unless `cancel_immediate`)
-3. resolve when `drain_done` and `stopped_done` are satisfied
+2. execute `ensure_drain(...)`
+3. resolve `stopped` when drain+runner termination conditions are met
 
-`cancel_immediate` behavior:
+`stop_immediate` behavior:
 
 - bypass drain guarantees where permitted
-- stop runner promptly
+- execute `ensure_immediate(...)`
+
+Run specifiers/variants may contribute to the stop determiner, but they are not required to append themselves into `task_or_tasks` returned from lifecycle hooks. This is intentional flexibility.
 
 ## Lazy signal requirement
 
@@ -61,6 +80,7 @@ Likely implementation direction:
 
 - per-segment state object with lazy fields
 - optionally metatable-backed lazy initialization
+- lazy creation for `stopped_drain`, `stopped_immediate`, and `stopped`
 
 ## Rationale
 
@@ -84,15 +104,20 @@ Tradeoffs:
 ## Implementation direction
 
 1. Add explicit stop policy fields to task transport config:
-   - `stop.type = "drain" | "cancel_immediate"`
-2. Introduce lazy cancel/drain/stopped signal state in task transport.
-3. Update `ensure_stopped` to default to drain-first.
-4. Add tests covering:
+   - `stop_type = "stop_drain" | "stop_immediate"`
+2. Introduce explicit stop strategy modules:
+   - [`/lua/termichatter/segment/define/transport/stop/drain.lua`](/lua/termichatter/segment/define/transport/stop/drain.lua)
+   - [`/lua/termichatter/segment/define/transport/stop/immediate.lua`](/lua/termichatter/segment/define/transport/stop/immediate.lua)
+3. Introduce lazy cancel/drain/stopped signal state in task transport.
+4. Update `ensure_stopped` to default to `stop_drain`.
+5. Add tests covering:
    - default drain behavior
    - immediate cancel behavior
    - cancel acknowledgement ordering
+   - lazy signal materialization
+   - `task_or_tasks` optional participation by run specifiers
 
 ## Deferred / not decided
 
-- Exact public API names for stop policy config.
-- Whether `cancel_done` should be externally exposed or internal-only.
+- Exact surface for exposing `stopped_drain` and `stopped_immediate` to segment authors.
+- Whether stop strategy selection can be changed per-run or is segment-fixed.
