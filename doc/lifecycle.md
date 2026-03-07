@@ -1,71 +1,80 @@
 # Line Lifecycle
 
-This guide describes the runtime lifecycle APIs on `Line`.
+This guide describes lifecycle orchestration on `Line`.
 
 References:
+
 - [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
 - [`/lua/termichatter/segment/completion.lua`](/lua/termichatter/segment/completion.lua)
-- [`/lua/termichatter/done.lua`](/lua/termichatter/done.lua)
-- [`/doc/selecting.md`](/doc/selecting.md)
+- [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md)
 
-## Deferreds on Line
+## Line Stop Future
 
-Each line has one line-scoped deferred handle created at construction time:
+Each line owns a stop future:
 
-- `line.stopped` resolves when stop hooks finish.
+- `line.stopped`
 
-Both support:
-
-- `:resolve(value)`
-- `:await(timeout?, interval?)`
-- `:on_resolve(callback)`
-- `:is_resolved()`
+`line:ensure_stopped()` resolves it after collected stop awaitables settle.
 
 ## `line:ensure_prepared()`
 
-Runs `segment.ensure_prepared(context)` for each segment in the pipe.
+Runs `segment.ensure_prepared(context)` across the current pipe.
 
 - collects returned `task_or_tasks`
-- awaits all collected tasks before returning
-- intended to be idempotent at segment level
+- awaits all collected awaitables before returning
+- expects hook idempotence at segment level
 
-`line:prepare_segments()` is currently an alias kept for migration.
+`line:prepare_segments()` remains an alias.
 
 ## `line:ensure_stopped()`
 
-Runs stop lifecycle for the whole pipe.
+Runs stop lifecycle for the whole line.
 
-- collects each segment's `segment.stopped` handle (if present)
+- collects segment stop handles (`segment.stopped` where present)
 - calls `segment.ensure_stopped(context)` and collects returned `task_or_tasks`
-- awaits all collected tasks
+- awaits collected awaitables
 - resolves `line.stopped`
 
 ## `line:close()`
 
-High-level shutdown path.
+High-level shutdown sequence:
 
-Current behavior:
+1. `line:ensure_prepared()`
+2. `line:ensure_stopped()`
 
-1. calls `line:ensure_prepared()`
-2. calls `line:ensure_stopped()`
+## Hook Context Shape
 
-Control flags:
-
-- `line.auto_completion_done_on_close = false` disables completion segment auto-emitting `done` on stop.
-
-## Context Objects Passed to Segment Hooks
-
-`init`, `ensure_prepared`, and `ensure_stopped` hooks receive context tables that include:
+Lifecycle context includes:
 
 - `line`
 - `pos`
 - `segment`
 
-`ensure_prepared` and `ensure_stopped` also include `force = true` when called from line lifecycle helpers.
+Line lifecycle calls pass `force = true` to `ensure_prepared` and `ensure_stopped`.
+
+## Strategy-Specific Stop (Task Transports)
+
+Task transport stop strategy is selected by `stop_type`:
+
+- `stop_drain` (default)
+- `stop_immediate`
+
+Generic `ensure_stopped` dispatches to strategy-specific verbs:
+
+- `ensure_stopped_drain`
+- `ensure_stopped_immediate`
+
+Strategy completion signals:
+
+- `stopped_drain`
+- `stopped_immediate`
+- `stopped`
+
+See [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md).
 
 ## Waiting by Segment Type
 
-Use selector-based waiting when you need stop lifecycle for a subset of segments:
+For targeted waits, use selector-based live stop handles:
 
 ```lua
 local completion_stop = line:stopped_live("completion")

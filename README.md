@@ -22,7 +22,7 @@ Messages flow through a **pipe** — an ordered sequence of **segment**. Each se
 |------|-------------|
 | **Line** | Pipeline definition: holds a pipe, registry, output queue, config |
 | **Pipe** | Ordered array of segment, first-class object with `rev`/`splice`/`clone` |
-| **Segment** | Processing component in a pipe (handler with optional `wants`/`emits` metadata) |
+| **Segment** | Processing component in a pipe (`handler(run)` plus optional lifecycle and metadata) |
 | **Run** | Lightweight cursor/context that walks a pipe, executing each segment |
 | **Registry** | Repository of known segment type, indexed by name |
 | **Fact** | Named capability tracked on line and/or run for dependency resolution |
@@ -143,10 +143,14 @@ registry:register("validator", {
 
 Segment receive the **run** as their sole argument. Access the element via `run.input`, line config via `run.source`, `run.filter`, etc.
 
-Return values:
+`handler(run)` is the processing entrypoint for a run path. Sync segments usually return values directly; boundary segments may hand off and resume later via continuation run objects.
+
+Return values (current shorthand):
 - **table** — becomes the next segment's input
 - **`false`** — stop the pipeline (message filtered)
-- **`nil`** — segment handled forwarding itself (fan-out via `run:clone()`)
+- **`nil`** — keep current input unchanged
+
+When run-level continuation tracking is needed, use `run.continuation` keyed by segment identity (`segment.id` preferred).
 
 ### Run
 
@@ -168,6 +172,8 @@ r:own("fact")  -- snapshot fact for independence
 r:set_fact("time")  -- lazily create per-run fact
 r:sync()       -- sync pos with line's pipe after splice
 ```
+
+Continuation flow remains run-centric: async boundaries eventually resume with `run:next(...)` on the continuation run they carried.
 
 #### Fan-Out
 

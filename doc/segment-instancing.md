@@ -40,3 +40,18 @@ When a segment instance is materialized/added, `init(context)` may run and can i
 If `init` returns an awaitable (future/task) and `seg.stopped` is unset, the return value is stored as `seg.stopped` and later awaited by `line:ensure_stopped()`.
 
 `init` is also the preferred place for per-instance default initialization (for example queue/future/state creation) when those defaults should not be shared across all lines.
+
+## Run-Owned Continuation State
+
+Continuation tracking belongs to the run, not the segment.
+
+If a segment needs per-run continuation bookkeeping, use:
+
+- `run.continuation`
+
+Key continuation entries by runtime segment identity:
+
+- prefer `segment.id`
+- fallback `segment.type` when needed
+
+Segment instance state and run continuation state are intentionally separate.

@@ -41,6 +41,14 @@ app.pipe = termichatter.Pipe({ handoff, "cloudevent" })
   - `line:ensure_stopped()`
   - `line:close()`
 
+## Run Continuation Ownership
+
+`mpsc_handoff` carries continuation runs across a queue boundary.
+
+- continuation is run-owned
+- boundary segment transports it; it does not redefine run semantics
+- if tracking is needed, continuation state can be stored on `run.continuation`
+
 ## Manual Continuation Mode
 
 For manual testing/control, disable auto-start and pop envelopes yourself.
@@ -56,3 +64,5 @@ local envelope = handoff.queue:pop()
 local continuation = envelope[termichatter.segment.HANDOFF_FIELD]
 continuation:next()
 ```
+
+This manual mode demonstrates queue transport only; continuation behavior remains the normal run `:next()` flow.

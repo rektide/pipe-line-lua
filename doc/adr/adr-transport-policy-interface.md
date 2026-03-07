@@ -1,4 +1,4 @@
-# ADR: Transport Policy Interface on Top of Core Segment Contract
+# ADR: Transport Policy Interface on Top of Core Handler Contract
 
 - Status: Proposed
 - Date: 2026-02-27
@@ -6,82 +6,97 @@
 
 ## Decision
 
-Transport wrappers (`defineMpsc`, `defineSafeTask`, `defineTask`) must build on the core segment contract from [`/lua/termichatter/segment/define.lua`](/lua/termichatter/segment/define.lua), not introduce parallel segment-shape rules.
+Transport wrappers (`defineMpsc`, `defineSafeTask`, `defineTask`) build on the core segment contract from [`/lua/termichatter/segment/define.lua`](/lua/termichatter/segment/define.lua) and keep `handler(run)` as the per-message entrypoint.
 
-Transport policy should be narrowly scoped to dispatch/runtime behavior.
-
-`configure_segment` is removed from policy interface.
+- `handler_async` is not part of the core contract.
+- `dispatch` is not part of the transport policy contract.
+- `configure_segment` is removed from transport policy contract.
 
 ## Context
 
-The current transport decomposition improved readability but still carried a policy hook (`configure_segment`) that conflates concerns:
+The decomposition work clarified that segment authoring has distinct layers:
 
-- spec-time segment shape/defaults
-- instance-time state initialization
-- run-time dispatch behavior
+- spec-time shape and defaults
+- per-instance setup (`init`)
+- per-run behavior (`handler(run)`)
 
-Base docs already indicate these are separate layers:
+When transport policy also mutates spec shape (`configure_segment`) and owns per-message dispatch verbs, the model becomes hard to follow.
 
-- segment authoring: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- instancing model: [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
+Related docs:
 
-## Core segment contract (unchanged)
+- [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
+- [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
 
-Segment contract remains centered on:
+## Core contract
+
+Core segment lifecycle remains:
 
 - `init(context)`
 - `ensure_prepared(context)`
 - `handler(run)`
 - `ensure_stopped(context)`
 
-`init` is the preferred place for per-instance defaults/state setup.
+`handler(run)` is the canonical "start processing this run" verb.
 
-## Transport policy contract (proposed)
+## Transport policy contract
 
 Transport policy objects should expose:
 
-- `type: string` (transport identity, for example `mpsc`, `safe_task`, `task`)
+- `type: string`
 - `ensure_prepared(segment, context, runtime) -> awaitable|awaitable[]|nil`
-- `dispatch(segment, run, continuation, runtime)`
 - `ensure_stopped(segment, context, runtime) -> awaitable|awaitable[]|nil`
 
-No `configure_segment` hook.
+Stop-strategy specializations may add:
+
+- `ensure_stopped_drain(...)`
+- `ensure_stopped_immediate(...)`
+
+as defined by [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md).
+
+## Continuation ownership
+
+Continuation is run-owned. If tracking is needed, store it on:
+
+- `run.continuation`
+
+with keys based on segment identity (prefer `segment.id`, fallback to `segment.type`).
 
 ## Boundary of responsibilities
 
-- **Segment spec defaults**: set in segment table construction/wrapper constructor.
-- **Per-instance defaults**: set in `init`.
-- **Transport runtime behavior**: transport policy hooks above.
-- **Protocol wrapping**: stays in [`/lua/termichatter/segment/define.lua`](/lua/termichatter/segment/define.lua).
+- **Segment defaults**: set by segment constructor/wrapper and `init`.
+- **Per-instance runtime state**: set by `init` on segment instance.
+- **Per-run control flow**: initiated by `handler(run)`.
+- **Transport lifecycle mechanics**: `ensure_prepared`/`ensure_stopped` policy hooks.
+- **Protocol pass-through rules**: remain in [`/lua/termichatter/segment/define.lua`](/lua/termichatter/segment/define.lua).
 
 ## Rationale
 
-- Keeps transport policies focused and auditable.
-- Avoids hidden spec mutation paths.
-- Aligns transport wrappers with documented segment lifecycle model.
-- Makes `init` the single canonical instance-setup hook.
+- keeps handler vocabulary stable for segment authors
+- removes parallel message-processing verbs from policy layer
+- aligns transport decomposition with base segment docs
+- reduces cognitive load in wrapper internals
 
 ## Consequences
 
 Positive:
 
-- clearer authoring model from base docs to transport wrappers
-- fewer places where defaults can be unexpectedly injected
-- easier review of transport logic (dispatch + lifecycle only)
+- clearer relationship between segment contract and transport policy
+- less hidden mutation surface in policy objects
+- easier to reason about run-centric continuation flow
 
 Tradeoffs:
 
-- wrapper constructors may need to be explicit about required defaults
-- some existing code paths using `configure_segment` need migration
+- wrapper construction and `init` need explicit defaults where previously injected by policy
+- some existing transport internals need reshaping away from dispatch-style flow
 
 ## Implementation direction
 
-1. Update transport builder in [`/lua/termichatter/segment/define/transport.lua`](/lua/termichatter/segment/define/transport.lua) to remove `configure_segment` calls.
-2. Move any remaining default injection into wrapper construction and/or `init` methods.
-3. Keep transport policies focused on `ensure_prepared`, `dispatch`, `ensure_stopped`.
-4. Update segment docs/examples to show `init`-based state creation where needed.
+1. Keep transport builder focused on lifecycle composition only.
+2. Remove `configure_segment` use from transport policies.
+3. Migrate transport internals away from dispatch vocabulary toward run-owned continuation flow.
+4. Keep segment docs authoritative for author-facing handler contract.
 
 ## Deferred / not decided
 
-- whether transport `type` should be validated at runtime in debug mode
-- whether transport metrics hooks should be part of `runtime` contract
+- whether `run.continuation` should be pre-created or allocated lazily
+- whether continuation key fallback should include `pos` when `id` is unavailable
