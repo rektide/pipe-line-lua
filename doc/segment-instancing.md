@@ -49,9 +49,6 @@ If a segment needs per-run continuation bookkeeping, use:
 
 - `run.continuation`
 
-Key continuation entries by runtime segment identity:
-
-- prefer `segment.id`
-- fallback `segment.type` when needed
+Continuation shape is intentionally flexible; a single continuation slot is acceptable.
 
 Segment instance state and run continuation state are intentionally separate.

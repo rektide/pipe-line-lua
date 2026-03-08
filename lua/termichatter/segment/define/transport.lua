@@ -8,6 +8,7 @@ local function build_segment(define, spec, transport)
 	local runtime = {
 		wrapped_handler = define.wrap_handler(segment, segment.handler),
 		handler_generator = segment.handler_generator,
+		transport_type = transport.type,
 	}
 
 	segment.ensure_prepared = function(self, context)

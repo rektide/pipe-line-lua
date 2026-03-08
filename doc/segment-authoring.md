@@ -72,7 +72,7 @@ If a segment needs to track continuation handles for a run, use:
 
 - `run.continuation`
 
-and key by segment identity (prefer `segment.id`, fallback `segment.type`).
+A single continuation slot is acceptable.
 
 ## Handler Return Semantics
 

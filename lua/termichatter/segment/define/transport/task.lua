@@ -103,8 +103,11 @@ end
 
 function M.new(mode)
 	mode = mode or "unsafe"
+	local transport_type = mode == "safe" and "safe_task" or "task"
 
 	return {
+		type = transport_type,
+
 		ensure_prepared = function(segment, context, runtime)
 			local state = ensure_state(segment)
 			ensure_processor(state, segment, context, runtime)

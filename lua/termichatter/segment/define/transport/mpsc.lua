@@ -16,6 +16,8 @@ function M.new(config)
 	end
 
 	return {
+		type = "mpsc",
+
 		ensure_prepared = function(segment, context)
 			ensure_defaults(segment)
 			local line = context and context.line
