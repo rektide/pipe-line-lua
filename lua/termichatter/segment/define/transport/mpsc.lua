@@ -1,19 +1,23 @@
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
+local common = require("termichatter.segment.define.common")
 
 local M = {}
 
 function M.new(config)
 	config = config or {}
 	local default_handoff_field = config.handoff_field or "__termichatter_mpsc_continuation"
+	local function ensure_defaults(segment)
+		if segment.queue == nil then
+			segment.queue = MpscQueue.new()
+		end
+		if segment.handoff_field == nil then
+			segment.handoff_field = default_handoff_field
+		end
+	end
 
 	return {
-		configure_segment = function(segment)
-			segment.queue = segment.queue or MpscQueue.new()
-			segment.strategy = segment.strategy or "self"
-			segment.handoff_field = segment.handoff_field or default_handoff_field
-		end,
-
 		ensure_prepared = function(segment, context)
+			ensure_defaults(segment)
 			local line = context and context.line
 			if line and (context.force == true or line.autoStartConsumers ~= false) then
 				return require("termichatter.consumer").ensure_queue_consumer(line, segment.queue)
@@ -22,6 +26,7 @@ function M.new(config)
 		end,
 
 		ensure_stopped = function(segment, context)
+			ensure_defaults(segment)
 			local line = context and context.line
 			if line then
 				return require("termichatter.consumer").stop_queue_consumer(line, segment.queue)
@@ -29,7 +34,13 @@ function M.new(config)
 			return nil
 		end,
 
-		dispatch = function(segment, run, continuation)
+		handler = function(segment, run, runtime)
+			local continuation, should_enqueue = common.prepare_continuation(segment, run, runtime.wrapped_handler)
+			if not should_enqueue then
+				return false
+			end
+
+			ensure_defaults(segment)
 			local payload
 			if type(segment.encode_message) == "function" then
 				payload = segment.encode_message(continuation, run, segment)
@@ -38,6 +49,7 @@ function M.new(config)
 			end
 
 			segment.queue:push(payload)
+			return common.stop_result_or_false(segment)
 		end,
 	}
 end

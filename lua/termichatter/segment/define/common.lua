@@ -74,6 +74,8 @@ function M.prepare_continuation(segment, run, wrapped_handler)
 		)
 	end
 
+	run.continuation = continuation
+
 	return continuation, true
 end
 

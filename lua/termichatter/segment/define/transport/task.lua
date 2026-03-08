@@ -105,10 +105,6 @@ function M.new(mode)
 	mode = mode or "unsafe"
 
 	return {
-		configure_segment = function(segment)
-			segment.strategy = segment.strategy or "self"
-		end,
-
 		ensure_prepared = function(segment, context, runtime)
 			local state = ensure_state(segment)
 			ensure_processor(state, segment, context, runtime)
@@ -118,7 +114,12 @@ function M.new(mode)
 			return ensure_runner(state, mode)
 		end,
 
-		dispatch = function(segment, run, continuation, runtime)
+		handler = function(segment, run, runtime)
+			local continuation, should_dispatch = common.prepare_continuation(segment, run, runtime.wrapped_handler)
+			if not should_dispatch then
+				return false
+			end
+
 			local state = ensure_state(segment)
 			ensure_processor(state, segment, { line = run.line, run = run, segment = segment }, runtime)
 			if mode == "safe" then
@@ -131,6 +132,8 @@ function M.new(mode)
 			else
 				runner:resume(continuation)
 			end
+
+			return common.stop_result_or_false(segment)
 		end,
 
 		ensure_stopped = function(segment)

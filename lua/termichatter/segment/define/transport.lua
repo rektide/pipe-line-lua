@@ -1,15 +1,7 @@
 local common = require("termichatter.segment.define.common")
 
-local M = {}
-
 local function build_segment(define, spec, transport)
 	local segment = common.copy_spec(spec)
-
-	if type(transport.configure_segment) == "function" then
-		transport.configure_segment(segment)
-	end
-
-	segment.strategy = segment.strategy or "self"
 
 	local user_ensure_prepared = segment.ensure_prepared
 	local user_ensure_stopped = segment.ensure_stopped
@@ -32,16 +24,11 @@ local function build_segment(define, spec, transport)
 	end
 
 	segment.handler = function(run)
-		local continuation, should_dispatch = common.prepare_continuation(segment, run, runtime.wrapped_handler)
-		if not should_dispatch then
-			return false
+		if type(transport.handler) == "function" then
+			return transport.handler(segment, run, runtime)
 		end
 
-		if type(transport.dispatch) == "function" then
-			transport.dispatch(segment, run, continuation, runtime)
-		end
-
-		return common.stop_result_or_false(segment)
+		return runtime.wrapped_handler(run)
 	end
 
 	segment.ensure_stopped = function(self, context)

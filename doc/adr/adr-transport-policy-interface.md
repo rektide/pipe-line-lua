@@ -59,7 +59,7 @@ Continuation is run-owned. If tracking is needed, store it on:
 
 - `run.continuation`
 
-with keys based on segment identity (prefer `segment.id`, fallback to `segment.type`).
+This ADR does not require a continuation map shape. A single continuation slot is acceptable.
 
 ## Boundary of responsibilities
 
@@ -99,4 +99,3 @@ Tradeoffs:
 ## Deferred / not decided
 
 - whether `run.continuation` should be pre-created or allocated lazily
-- whether continuation key fallback should include `pos` when `id` is unavailable
