@@ -1,5 +1,9 @@
 # MPSC Decomposition
 
+> Partially superseded by: [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md).
+>
+> This note remains useful for decomposition ideas, but terminology around dispatch and async handler shape may differ from the current handler-first contract.
+
 This note expands decomposition options for [`/lua/termichatter/segment/mpsc.lua`](/lua/termichatter/segment/mpsc.lua) so queue-backed segments are reusable, explicit, and composable.
 
 Related references:

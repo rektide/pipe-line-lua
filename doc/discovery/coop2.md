@@ -1,5 +1,9 @@
 # Coop2 Ideas
 
+> Superseded by: [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md), [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md), and [`/doc/segment-authoring.md`](/doc/segment-authoring.md).
+>
+> This discovery note contains historical exploration and naming that no longer reflects the current contract.
+
 This note captures the design direction after removing queue payload sentinels and moving toward explicit async lifecycle ownership.
 
 References:

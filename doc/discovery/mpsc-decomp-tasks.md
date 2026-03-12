@@ -1,5 +1,9 @@
 # MPSC Decomposition Tasks
 
+> Superseded by: [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md) and [`/doc/segment-authoring.md`](/doc/segment-authoring.md).
+>
+> This task breakdown assumes `handler_async` and dispatch vocabulary that are no longer part of the current segment contract.
+
 This note turns Option 3 from [`/doc/discovery/mpsc-decomposition.md`](/doc/discovery/mpsc-decomposition.md) into an implementation-oriented task plan, with coop awaitable semantics baked in.
 
 Related references:
