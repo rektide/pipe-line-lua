@@ -4,44 +4,57 @@
 
 These define the current architecture. Read these to understand pipe-line.
 
-- [`segment-authoring.md`](/doc/segment-authoring.md) — Segment contract: `handler(run)`, lifecycle hooks, return semantics, protocol pass-through via `define()`
-- [`segment-instancing.md`](/doc/segment-instancing.md) — How registry prototypes become per-line runtime instances; `auto_fork`/`auto_instance`/`auto_id`; continuation ownership
-- [`selecting.md`](/doc/selecting.md) — `line:select_segments()` and `line:stopped_live()` for runtime segment queries
-- [`lifecycle.md`](/doc/lifecycle.md) — Line lifecycle orchestration: `ensure_prepared`, `ensure_stopped`, `close`, hook context shape, strategy-specific stop
-- [`async-handoff.md`](/doc/async-handoff.md) — Explicit async boundaries via `mpsc_handoff`; custom handoff; manual continuation mode
-- [`completion-protocol.md`](/doc/completion-protocol.md) — Completion control runs, state accounting, completion segment stop behavior
+| Document | Created | Description |
+|----------|---------|-------------|
+| [`segment-authoring.md`](/doc/segment-authoring.md) | 2026-02-26 | Segment contract: `handler(run)`, lifecycle hooks, return semantics, protocol pass-through via `define()` |
+| [`segment-instancing.md`](/doc/segment-instancing.md) | 2026-02-26 | How registry prototypes become per-line runtime instances; `auto_fork`/`auto_instance`/`auto_id`; continuation ownership |
+| [`selecting.md`](/doc/selecting.md) | 2026-02-26 | `line:select_segments()` and `line:stopped_live()` for runtime segment queries |
+| [`lifecycle.md`](/doc/lifecycle.md) | 2026-02-26 | Line lifecycle orchestration: `ensure_prepared`, `ensure_stopped`, `close`, hook context shape, strategy-specific stop |
+| [`async-handoff.md`](/doc/async-handoff.md) | 2026-02-26 | Explicit async boundaries via `mpsc_handoff`; custom handoff; manual continuation mode |
+| [`completion-protocol.md`](/doc/completion-protocol.md) | 2026-02-26 | Completion control runs, state accounting, completion segment stop behavior |
 
 ## Architecture Decision Records
 
-- [`adr/README.md`](/doc/adr/README.md) — ADR index
-- [`adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md) — Transport wrappers compose on core `handler(run)` contract; removes `handler_async`/`configure_segment`
-- [`adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md) — Strategy-specific stop futures and verbs (`stop_drain`, `stop_immediate`). Proposed; not yet fully implemented.
+| Document | Created | Description |
+|----------|---------|-------------|
+| [`adr/README.md`](/doc/adr/README.md) | 2026-02-26 | ADR index |
+| [`adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md) | 2026-02-26 | Transport wrappers compose on core `handler(run)` contract; removes `handler_async`/`configure_segment` |
+| [`adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md) | 2026-02-26 | Strategy-specific stop futures and verbs (`stop_drain`, `stop_immediate`). Proposed; not yet fully implemented. |
 
 ## Discovery — Active Explorations
 
 Working notes for in-progress design and audit work. May inform future normative docs.
 
-- [`discovery/doc-fixes.md`](/doc/discovery/doc-fixes.md) — Audit of all doc files against current code; tracked discrepancies and recommendations
-- [`discovery/readme-pipe-line.md`](/doc/discovery/readme-pipe-line.md) — Guide used for README rewrite: source material, content goals, contract language
-- [`discovery/adr-async-boundary-segments.md`](/doc/discovery/adr-async-boundary-segments.md) — Exploratory notes on async boundary segment decomposition
-- [`discovery/re-async.md`](/doc/discovery/re-async.md) — Async model re-examination notes
-- [`discovery/rename.md`](/doc/discovery/rename.md) — Naming and rename considerations
+| Document | Created | Description |
+|----------|---------|-------------|
+| [`discovery/doc-fixes.md`](/doc/discovery/doc-fixes.md) | 2026-03-13 | Audit of all doc files against current code; tracked discrepancies and recommendations |
+| [`discovery/readme-pipe-line.md`](/doc/discovery/readme-pipe-line.md) | 2026-03-13 | Guide used for README rewrite: source material, content goals, contract language |
+| [`discovery/adr-async-boundary-segments.md`](/doc/discovery/adr-async-boundary-segments.md) | 2026-02-25 | Exploratory notes on async boundary segment decomposition |
+| [`discovery/re-async.md`](/doc/discovery/re-async.md) | 2026-02-26 | Async model re-examination notes |
+| [`discovery/rename.md`](/doc/discovery/rename.md) | 2026-03-13 | Naming and rename considerations |
 
 ## Archive — Superseded
 
 Historical documents. These reflect earlier designs and are preserved for rationale context only.
 
-- [`archive/consumer.md`](/doc/archive/consumer.md) — Old consumer API (`create`, `createPipeline`, `withDriver`); fully superseded by run-centric handoff model
-- [`archive/mpsc-decomposition.md`](/doc/archive/mpsc-decomposition.md) — mpsc decomposition design exploration
-- [`archive/mpsc-decomp-tasks.md`](/doc/archive/mpsc-decomp-tasks.md) — Task breakdown for mpsc decomposition
-- [`archive/coop2.md`](/doc/archive/coop2.md) — coop.nvim integration notes
-- [`archive/coop-tools.md`](/doc/archive/coop-tools.md) — coop utility exploration
-- [`archive/requirements.md`](/doc/archive/requirements.md) — Early requirements
-- [`archive/pipecopy.md`](/doc/archive/pipecopy.md), [`archive/pipecopy-next.md`](/doc/archive/pipecopy-next.md) — Pipe copy design iterations
-- [`archive/pipenext-status.md`](/doc/archive/pipenext-status.md), [`archive/status.md`](/doc/archive/status.md), [`archive/status2.md`](/doc/archive/status2.md) — Historical status snapshots
-- [`archive/self-ify.md`](/doc/archive/self-ify.md) — Self-ification refactor notes
-- [`archive/pipeflow/`](/doc/archive/pipeflow/) — Earlier pipeflow design artifacts
+| Document | Created | Description |
+|----------|---------|-------------|
+| [`archive/consumer.md`](/doc/archive/consumer.md) | 2026-02-07 | Old consumer API (`create`, `createPipeline`, `withDriver`); fully superseded by run-centric handoff model |
+| [`archive/mpsc-decomposition.md`](/doc/archive/mpsc-decomposition.md) | 2026-02-26 | mpsc decomposition design exploration |
+| [`archive/mpsc-decomp-tasks.md`](/doc/archive/mpsc-decomp-tasks.md) | 2026-02-26 | Task breakdown for mpsc decomposition |
+| [`archive/coop2.md`](/doc/archive/coop2.md) | 2026-02-26 | coop.nvim integration notes |
+| [`archive/coop-tools.md`](/doc/archive/coop-tools.md) | 2026-02-04 | coop utility exploration |
+| [`archive/requirements.md`](/doc/archive/requirements.md) | 2026-02-04 | Early requirements |
+| [`archive/pipecopy.md`](/doc/archive/pipecopy.md) | 2026-02-14 | Pipe copy design iteration |
+| [`archive/pipecopy-next.md`](/doc/archive/pipecopy-next.md) | 2026-02-20 | Pipe copy design iteration (follow-up) |
+| [`archive/pipenext-status.md`](/doc/archive/pipenext-status.md) | 2026-02-21 | Pipe-next status snapshot |
+| [`archive/status.md`](/doc/archive/status.md) | 2026-02-23 | Historical status snapshot |
+| [`archive/status2.md`](/doc/archive/status2.md) | 2026-02-26 | Historical status snapshot |
+| [`archive/self-ify.md`](/doc/archive/self-ify.md) | 2026-02-12 | Self-ification refactor notes |
+| [`archive/pipeflow/`](/doc/archive/pipeflow/) | 2026-02-14 | Earlier pipeflow design artifacts (Effect-based explorations, lattice resolver) |
 
 ## Other
 
-- [`termichatter.txt`](/doc/termichatter.txt) — Neovim help file (vimdoc)
+| Document | Created | Description |
+|----------|---------|-------------|
+| [`termichatter.txt`](/doc/termichatter.txt) | 2026-02-04 | Neovim help file (vimdoc) |
