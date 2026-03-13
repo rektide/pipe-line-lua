@@ -2,9 +2,11 @@
 --- Holds a pipe, registry, output, config. Methods on shared prototype.
 local inherit = require("pipe-line.inherit")
 local Pipe = require("pipe-line.pipe")
+local coop = require("coop")
 local cooputil = require("pipe-line.coop")
 local segment = require("pipe-line.segment")
 local logutil = require("pipe-line.log")
+local Future = require("coop.future").Future
 local util = require("pipe-line.util")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
