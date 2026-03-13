@@ -1,17 +1,17 @@
-# Rename Discovery: nvim-termichatter → pipe-line-lua
+# Rename Discovery: nvim-pipe-line → pipe-line-lua
 
 Date: 2026-03-13
 
 ## Executive Summary
 
-Project rename from **nvim-termichatter** to **pipe-line-lua**. represents a significant work across codebase, documentation, and and infrastructure. This document catalogs the comprehensive scope assessment for all changes required and and provides actionable recommendations for## Scope Assessment
+Project rename from **nvim-pipe-line** to **pipe-line-lua**. represents a significant work across codebase, documentation, and and infrastructure. This document catalogs the comprehensive scope assessment for all changes required and and provides actionable recommendations for## Scope Assessment
 
 ### High Priority Changes (Critical Path, Must change first)
 
 | Category | File | Changes Required | Complexity |
 |----------| ---- | ------------------- | ----------- |
-| **Core Module** | `lua/termichatter/` directory | Rename entire directory | High |
-| **Test Suite** | `tests/termichatter/` directory | Rename entire directory | High |
+| **Core Module** | `lua/pipe-line/` directory | Rename entire directory | High |
+| **Test Suite** | `tests/pipe-line/` directory | Rename entire directory | High |
 | **Configuration** | `Cargo.toml` | Update package name | Low |
 | **Configuration** | `.luarc.json` | Update workspace paths | Low |
 | **Build Config** | `Makefile` | No changes needed | Low |
@@ -26,7 +26,7 @@ Project rename from **nvim-termichatter** to **pipe-line-lua**. represents a sig
 | **Source references** | All `.lua` files | Update require statements | Medium |
 | **Test imports** | All test files | Update import paths | Medium |
 | **Doc references** | All doc files | Update references | Medium |
-| **Internal fields** | Various files | Update field names like `_termichatter_*` | Medium |
+| **Internal fields** | Various files | Update field names like `_pipe-line_*` | Medium |
 
 ### Lower Priority Changes (Optional but recommended)
 | Category | File Count | Action Required | Complexity |
@@ -34,7 +34,7 @@ Project rename from **nvim-termichatter** to **pipe-line-lua**. represents a sig
 | **Benchmark references** | `benches/` directory | Update imports | Low |
 | **Test agent files** | `.test-agent/` directory | Update internal references | Low |
 | **Dependencies** | `deps/` directory | No changes needed | Low |
-| **Vim help** | `doc/termichatter.txt` | Update if exists | Low |
+| **Vim help** | `doc/pipe-line.txt` | Update if exists | Low |
 
 ## Documentation Freshness Assessment
 
@@ -78,7 +78,7 @@ Project rename from **nvim-termichatter** to **pipe-line-lua**. represents a sig
 
 #### Lua Module Structure
 ```
-lua/termichatter/
+lua/pipe-line/
 ├── consumer.lua
 ├── coop.lua
 ├── driver.lua
@@ -107,26 +107,26 @@ lua/termichatter/
     └── mpsc.lua
 ```
 
-Total: ~30 files in `lua/termichatter/` and subdirectories
+Total: ~30 files in `lua/pipe-line/` and subdirectories
 
 #### Import Pattern Analysis
 Current imports use:
-require("termichatter.*")
+require("pipe-line.*")
  pattern:
-- `require("termichatter")` - main module
-- `require("termichatter.line")`
-- `require("termichatter.pipe")`
-- `require("termichatter.run")`
-- `require("termichatter.segment")`
-- `require("termichatter.segment.define")`
-- `require("termichatter.segment.mpsc")`
+- `require("pipe-line")` - main module
+- `require("pipe-line.line")`
+- `require("pipe-line.pipe")`
+- `require("pipe-line.run")`
+- `require("pipe-line.segment")`
+- `require("pipe-line.segment.define")`
+- `require("pipe-line.segment.mpsc")`
 - etc.
 
 This pattern appears consistently across all 25+ source files.
 
 #### Test Structure
 ```
-tests/termichatter/
+tests/pipe-line/
 ├── consumer_spec.lua
 ├── init_spec.lua
 ├── integration_spec.lua
@@ -178,7 +178,7 @@ doc/
 
 Total: ~30 documentation files
 
-### 2. Termichatter Reference Analysis
+### 2. Pipe-line Reference Analysis
 
 #### Files by Category
 | Category | File Count | Est. Lines |
@@ -191,7 +191,7 @@ Total: ~30 documentation files
 
 #### High-Impact Reference Locations
 1. **README.md**: 15 references
-2. **lua/termichatter/init.lua**: 20+ references (internal)
+2. **lua/pipe-line/init.lua**: 20+ references (internal)
 3. **Tests**: 150+ references
  all tests clear package cache and re-import
 4. **Documentation**: 150+ references across all doc files
@@ -231,7 +231,7 @@ tests/pipe-line-lua/
 #### Cargo.toml
 ```toml
 [package]
-name = "pipe-line-lua-bench"  # was: termichatter-lua-bench
+name = "pipe-line-lua-bench"  # was: pipe-line-lua-bench
 version = "0.1.0"
 edition = "2021"
 ```
@@ -265,21 +265,21 @@ No changes needed - no project-specific references.
 
 #### Field Names to Review
 Some internal fields may reference the old name:
-- `_termichatter_line` → `_pipe_line_line` or similar
-- `_termichatter_is_instance` → `_pipe_line_is_instance`
-- `_termichatter_task_state` → `_pipe_line_task_state`
-- `__termichatter_handoff_run` → `__pipe_line_handoff_run`
-- `__termichatter_mpsc_continuation` → `__pipe_line_mpsc_continuation`
-- `termichatter_protocol` → `pipe_line_protocol`
+- `_pipe-line_line` → `_pipe_line_line` or similar
+- `_pipe-line_is_instance` → `_pipe_line_is_instance`
+- `_pipe-line_task_state` → `_pipe_line_task_state`
+- `__pipe-line_handoff_run` → `__pipe_line_handoff_run`
+- `__pipe-line_mpsc_continuation` → `__pipe_line_mpsc_continuation`
+- `pipe-line_protocol` → `pipe_line_protocol`
 
 **Decision needed**: Should these internal field names change? They are implementation details not exposed in public API.
 
 #### Message Type Constants
-- `"termichatter.log"` → Consider: `"pipe-line-lua.log"` or keep as-is
-- `"termichatter.shutdown"` → Consider: `"pipe-line-lua.shutdown"` or keep as-is
+- `"pipe-line.log"` → Consider: `"pipe-line-lua.log"` or keep as-is
+- `"pipe-line.shutdown"` → Consider: `"pipe-line-lua.shutdown"` or keep as-is
 
 #### vim.help File
-- `doc/termichatter.txt` - needs to be renamed and updated
+- `doc/pipe-line.txt` - needs to be renamed and updated
 
 ### 6. Naming Recommendations
 
@@ -329,8 +329,8 @@ Cons:
 3. Document current state
 
 #### Phase 2: Directory Rename
-1. `git mv lua/termichatter lua/pipelinelua` (or chosen name)
-2. `git mv tests/termichatter tests/pipelinelua`
+1. `git mv lua/pipe-line lua/pipelinelua` (or chosen name)
+2. `git mv tests/pipe-line tests/pipelinelua`
 3. Update `.luarc.json` if needed
 
 #### Phase 3: Code Updates
@@ -421,53 +421,53 @@ Cons:
 
 ### Lua Source Files (25 files)
 ```
-lua/termichatter/consumer.lua
-lua/termichatter/coop.lua
-lua/termichatter/driver.lua
-lua/termichatter/inherit.lua
-lua/termichatter/init.lua
-lua/termichatter/line.lua
-lua/termichatter/log.lua
-lua/termichatter/outputter.lua
-lua/termichatter/pipe.lua
-lua/termichatter/protocol.lua
-lua/termichatter/registry.lua
-lua/termichatter/resolver.lua
-lua/termichatter/run.lua
-lua/termichatter/util.lua
-lua/termichatter/segment.lua
-lua/termichatter/segment/completion.lua
-lua/termichatter/segment/define.lua
-lua/termichatter/segment/mpsc.lua
-lua/termichatter/segment/define/common.lua
-lua/termichatter/segment/define/mpsc.lua
-lua/termichatter/segment/define/safe-task.lua
-lua/termichatter/segment/define/task.lua
-lua/termichatter/segment/define/transport.lua
-lua/termichatter/segment/define/transport/mpsc.lua
-lua/termichatter/segment/define/transport/task.lua
+lua/pipe-line/consumer.lua
+lua/pipe-line/coop.lua
+lua/pipe-line/driver.lua
+lua/pipe-line/inherit.lua
+lua/pipe-line/init.lua
+lua/pipe-line/line.lua
+lua/pipe-line/log.lua
+lua/pipe-line/outputter.lua
+lua/pipe-line/pipe.lua
+lua/pipe-line/protocol.lua
+lua/pipe-line/registry.lua
+lua/pipe-line/resolver.lua
+lua/pipe-line/run.lua
+lua/pipe-line/util.lua
+lua/pipe-line/segment.lua
+lua/pipe-line/segment/completion.lua
+lua/pipe-line/segment/define.lua
+lua/pipe-line/segment/mpsc.lua
+lua/pipe-line/segment/define/common.lua
+lua/pipe-line/segment/define/mpsc.lua
+lua/pipe-line/segment/define/safe-task.lua
+lua/pipe-line/segment/define/task.lua
+lua/pipe-line/segment/define/transport.lua
+lua/pipe-line/segment/define/transport/mpsc.lua
+lua/pipe-line/segment/define/transport/task.lua
 ```
 
 ### Test Files (14 files)
 ```
-tests/termichatter/consumer_spec.lua
-tests/termichatter/init_spec.lua
-tests/termichatter/integration_spec.lua
-tests/termichatter/line_spec.lua
-tests/termichatter/log_spec.lua
-tests/termichatter/mpsc_spec.lua
-tests/termichatter/outputter_spec.lua
-tests/termichatter/pipe_spec.lua
-tests/termichatter/pipeline_spec.lua
-tests/termichatter/protocol_spec.lua
-tests/termichatter/resolver_spec.lua
-tests/termichatter/run_spec.lua
-tests/termichatter/stopped_live_spec.lua
+tests/pipe-line/consumer_spec.lua
+tests/pipe-line/init_spec.lua
+tests/pipe-line/integration_spec.lua
+tests/pipe-line/line_spec.lua
+tests/pipe-line/log_spec.lua
+tests/pipe-line/mpsc_spec.lua
+tests/pipe-line/outputter_spec.lua
+tests/pipe-line/pipe_spec.lua
+tests/pipe-line/pipeline_spec.lua
+tests/pipe-line/protocol_spec.lua
+tests/pipe-line/resolver_spec.lua
+tests/pipe-line/run_spec.lua
+tests/pipe-line/stopped_live_spec.lua
 tests/busted.lua (minor updates)
 ```
 
 ### Documentation Files (30 files)
-All doc/*.md files contain references to "termichatter"
+All doc/*.md files contain references to "pipe-line"
 
 ### Configuration Files (4 files)
 ```
@@ -481,19 +481,19 @@ Makefile (no changes needed)
 
 Before rename:
 ```bash
-grep -r "termichatter" --include="*.lua" --include="*.md" --include="*.toml" . | wc -l
+grep -r "pipe-line" --include="*.lua" --include="*.md" --include="*.toml" . | wc -l
 ```
 
 After rename (to verify completeness):
 ```bash
-grep -r "termichatter" --include="*.lua" --include="*.md" --include="*.toml" .
+grep -r "pipe-line" --include="*.lua" --include="*.md" --include="*.toml" .
 # Should only find references in comments explaining the old name
 ```
 
 ## Appendix C: Migration Guide Template
 
 ```markdown
-# Migration Guide: termichatter → pipe-line-lua
+# Migration Guide: pipe-line → pipe-line-lua
 
 ## Overview
 [Explain the rename and why]
@@ -501,7 +501,7 @@ grep -r "termichatter" --include="*.lua" --include="*.md" --include="*.toml" .
 ## Breaking Changes
 
 ### Module Name
-- Old: `require("termichatter")`
+- Old: `require("pipe-line")`
 - New: `require("pipelinelua")`
 
 ### Internal Fields
@@ -513,7 +513,7 @@ grep -r "termichatter" --include="*.lua" --include="*.md" --include="*.toml" .
    ```lua
    -- lazy.nvim
    {
-       "rektide/pipe-line-lua",  -- was: rektide/nvim-termichatter
+       "rektide/pipe-line-lua",  -- was: rektide/nvim-pipe-line
        dependencies = { "gregorias/coop.nvim" },
    }
    ```
@@ -521,7 +521,7 @@ grep -r "termichatter" --include="*.lua" --include="*.md" --include="*.toml" .
 2. Update your code:
    ```lua
    -- Before
-   local termichatter = require("termichatter")
+   local pipe-line = require("pipe-line")
    
    -- After
    local pipelinelua = require("pipelinelua")

@@ -1,15 +1,15 @@
 # Re-Async Discovery
 
-This note captures how to move termichatter to an async-first runtime built directly on coop tasks/futures, and remove blocking wait patterns from runtime modules.
+This note captures how to move pipe-line to an async-first runtime built directly on coop tasks/futures, and remove blocking wait patterns from runtime modules.
 
 Related local code:
-- [`/lua/termichatter/done.lua`](/lua/termichatter/done.lua)
-- [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
-- [`/lua/termichatter/run.lua`](/lua/termichatter/run.lua)
-- [`/lua/termichatter/coop.lua`](/lua/termichatter/coop.lua)
-- [`/lua/termichatter/consumer.lua`](/lua/termichatter/consumer.lua)
-- [`/lua/termichatter/outputter.lua`](/lua/termichatter/outputter.lua)
-- [`/lua/termichatter/segment/mpsc.lua`](/lua/termichatter/segment/mpsc.lua)
+- [`/lua/pipe-line/done.lua`](/lua/pipe-line/done.lua)
+- [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
+- [`/lua/pipe-line/run.lua`](/lua/pipe-line/run.lua)
+- [`/lua/pipe-line/coop.lua`](/lua/pipe-line/coop.lua)
+- [`/lua/pipe-line/consumer.lua`](/lua/pipe-line/consumer.lua)
+- [`/lua/pipe-line/outputter.lua`](/lua/pipe-line/outputter.lua)
+- [`/lua/pipe-line/segment/mpsc.lua`](/lua/pipe-line/segment/mpsc.lua)
 
 Primary coop references:
 - [`gregorias/coop.nvim` `lua/coop/future.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/future.lua#L70-L191)
@@ -32,10 +32,10 @@ Runtime blocking points today:
 
 | File | Location | Blocking behavior |
 |---|---|---|
-| [`/lua/termichatter/done.lua`](/lua/termichatter/done.lua) | `create_deferred().await` | `vim.wait(...)` busy wait |
-| [`/lua/termichatter/coop.lua`](/lua/termichatter/coop.lua) | `await_all` fallback | `task:await(timeout, interval)` |
-| [`/lua/termichatter/consumer.lua`](/lua/termichatter/consumer.lua) | `await_task_stopped` | `task:await(timeout, interval)` |
-| [`/lua/termichatter/outputter.lua`](/lua/termichatter/outputter.lua) | `await_task_stopped` | `task:await(timeout, interval)` |
+| [`/lua/pipe-line/done.lua`](/lua/pipe-line/done.lua) | `create_deferred().await` | `vim.wait(...)` busy wait |
+| [`/lua/pipe-line/coop.lua`](/lua/pipe-line/coop.lua) | `await_all` fallback | `task:await(timeout, interval)` |
+| [`/lua/pipe-line/consumer.lua`](/lua/pipe-line/consumer.lua) | `await_task_stopped` | `task:await(timeout, interval)` |
+| [`/lua/pipe-line/outputter.lua`](/lua/pipe-line/outputter.lua) | `await_task_stopped` | `task:await(timeout, interval)` |
 
 ## Coop model to follow
 
@@ -49,7 +49,7 @@ From coop semantics:
   - use `future:await(callback)` (non-blocking callback mode).
   - avoid `await(timeout, interval)` except as explicit sync fallback tooling.
 
-Policy target for termichatter runtime:
+Policy target for pipe-line runtime:
 
 - Allowed in runtime internals: task await (`await()`), protected await (`pawait()`), callback await (`await(cb)`).
 - Disallowed in runtime internals: `vim.wait`, `await(timeout, interval)`.
@@ -58,7 +58,7 @@ Policy target for termichatter runtime:
 
 Current entry flow is synchronous:
 
-- `termichatter(config)` creates a line.
+- `pipe-line(config)` creates a line.
 - `line:log(...)` calls `line:run(...)`.
 - `Run.new(..., noStart=false)` executes `run:execute()` immediately on caller thread.
 
@@ -119,7 +119,7 @@ Key point: no `vim.wait` in runtime lifecycle primitives.
 
 ### 5) mpsc boundary role
 
-- Keep [`/lua/termichatter/segment/mpsc.lua`](/lua/termichatter/segment/mpsc.lua) for explicit boundaries.
+- Keep [`/lua/pipe-line/segment/mpsc.lua`](/lua/pipe-line/segment/mpsc.lua) for explicit boundaries.
 - Do not rely on explicit boundary placement as the only mechanism for "getting into task".
 - Ingress worker is the default task entry; boundary segments become explicit partitioning tools.
 
@@ -146,11 +146,11 @@ Key point: no `vim.wait` in runtime lifecycle primitives.
 2. Convert line lifecycle (`ensure_prepared`, `ensure_stopped`, `close`) to async-first return handles.
 3. Replace `done` internals with Future-backed behavior, removing `vim.wait`.
 4. Remove runtime timeout-await patterns in `coop.lua`, `consumer.lua`, and `outputter.lua`.
-5. Remove or shrink [`/lua/termichatter/coop.lua`](/lua/termichatter/coop.lua) once callsites use coop control primitives directly.
+5. Remove or shrink [`/lua/pipe-line/coop.lua`](/lua/pipe-line/coop.lua) once callsites use coop control primitives directly.
 
 ## Success criteria
 
-- No `vim.wait` in runtime modules under [`/lua/termichatter`](/lua/termichatter).
+- No `vim.wait` in runtime modules under [`/lua/pipe-line`](/lua/pipe-line).
 - No runtime `await(timeout, interval)` usage.
 - Runtime joins happen via task await/pawait or callback await.
 - Line execution enters task context at ingress by default.

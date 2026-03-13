@@ -3,23 +3,23 @@
 This guide covers completion control runs and completion segment stop behavior.
 
 References:
-- [`/lua/termichatter/protocol.lua`](/lua/termichatter/protocol.lua)
-- [`/lua/termichatter/segment/completion.lua`](/lua/termichatter/segment/completion.lua)
-- [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
+- [`/lua/pipe-line/protocol.lua`](/lua/pipe-line/protocol.lua)
+- [`/lua/pipe-line/segment/completion.lua`](/lua/pipe-line/segment/completion.lua)
+- [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
 - [`/doc/selecting.md`](/doc/selecting.md)
 
 ## Control Fields
 
 Completion protocol uses run fields, not `run.input` payload fields:
 
-- `termichatter_protocol = true`
+- `pipe-line_protocol = true`
 - `mpsc_completion = "hello" | "done" | "shutdown"`
 - `mpsc_completion_name` optional
 
 ## Creating Control Runs
 
 ```lua
-local protocol = require("termichatter.protocol")
+local protocol = require("pipe-line.protocol")
 
 local hello = protocol.completion.completion_run("hello", "worker:a")
 local done = protocol.completion.completion_run("done", "worker:a")

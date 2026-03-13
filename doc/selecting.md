@@ -3,7 +3,7 @@
 This guide covers selecting runtime segment instances from a line.
 
 References:
-- [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
+- [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
 
 ## `line:select_segments(selector, opts?)`
 

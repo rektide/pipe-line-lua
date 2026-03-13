@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-02-27
-- Decision makers: termichatter maintainers
+- Decision makers: pipe-line maintainers
 
 ## Decision
 
@@ -74,9 +74,9 @@ This ADR refines stop semantics for task transport decomposition work.
 
 Relevant implementation files:
 
-- [`/lua/termichatter/segment/define/transport/task.lua`](/lua/termichatter/segment/define/transport/task.lua)
-- [`/lua/termichatter/segment/define/transport.lua`](/lua/termichatter/segment/define/transport.lua)
-- [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
+- [`/lua/pipe-line/segment/define/transport/task.lua`](/lua/pipe-line/segment/define/transport/task.lua)
+- [`/lua/pipe-line/segment/define/transport.lua`](/lua/pipe-line/segment/define/transport.lua)
+- [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
 
 Related discovery docs:
 
@@ -86,8 +86,8 @@ Related discovery docs:
 ## Implementation direction
 
 1. Introduce strategy modules:
-   - [`/lua/termichatter/segment/define/transport/stop/drain.lua`](/lua/termichatter/segment/define/transport/stop/drain.lua)
-   - [`/lua/termichatter/segment/define/transport/stop/immediate.lua`](/lua/termichatter/segment/define/transport/stop/immediate.lua)
+   - [`/lua/pipe-line/segment/define/transport/stop/drain.lua`](/lua/pipe-line/segment/define/transport/stop/drain.lua)
+   - [`/lua/pipe-line/segment/define/transport/stop/immediate.lua`](/lua/pipe-line/segment/define/transport/stop/immediate.lua)
 2. Add strategy verb methods in task transport:
    - `ensure_stopped_drain`
    - `ensure_stopped_immediate`

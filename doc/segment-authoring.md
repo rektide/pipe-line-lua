@@ -1,13 +1,13 @@
 # Segment Authoring
 
-This guide describes the segment contract and naming model used by termichatter.
+This guide describes the segment contract and naming model used by pipe-line.
 
 References:
 
-- [`/lua/termichatter/segment.lua`](/lua/termichatter/segment.lua)
-- [`/lua/termichatter/segment/define.lua`](/lua/termichatter/segment/define.lua)
-- [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
-- [`/lua/termichatter/run.lua`](/lua/termichatter/run.lua)
+- [`/lua/pipe-line/segment.lua`](/lua/pipe-line/segment.lua)
+- [`/lua/pipe-line/segment/define.lua`](/lua/pipe-line/segment/define.lua)
+- [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
+- [`/lua/pipe-line/run.lua`](/lua/pipe-line/run.lua)
 
 ## Core Contract
 
@@ -109,7 +109,7 @@ Hook context keys:
 `segment.define(...)` wraps handler behavior with protocol pass-through defaults.
 
 ```lua
-local define = require("termichatter.segment.define").define
+local define = require("pipe-line.segment.define").define
 
 local my_segment = define({
   type = "my_segment",

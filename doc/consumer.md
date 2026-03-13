@@ -1,6 +1,6 @@
 # Consumer Module Guide
 
-The consumer module (`termichatter.consumer`) is the async workhorse of termichatter. It bridges the gap between queues and processing—taking messages that have been pushed to queues and running them through handlers.
+The consumer module (`pipe-line.consumer`) is the async workhorse of pipe-line. It bridges the gap between queues and processing—taking messages that have been pushed to queues and running them through handlers.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ The consumer module (`termichatter.consumer`) is the async workhorse of termicha
 
 ## Where Consumers Fit in the Architecture
 
-termichatter has two execution modes for pipeline stages:
+pipe-line has two execution modes for pipeline stages:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -150,7 +150,7 @@ flowchart TD
 
 1. **Blocking pop**: `inputQueue:pop()` is a coop async operation—it yields until a message arrives. This is cooperative, not busy-waiting.
 
-2. **Shutdown terminates**: When a `termichatter.shutdown` message arrives, the consumer forwards it and exits its loop. This is how pipelines cleanly shut down.
+2. **Shutdown terminates**: When a `pipe-line.shutdown` message arrives, the consumer forwards it and exits its loop. This is how pipelines cleanly shut down.
 
 3. **Completion signals pass through**: `hello` and `done` messages are forwarded without processing. They're control messages, not data.
 
@@ -165,7 +165,7 @@ flowchart TD
 Creates a single consumer that processes messages from one queue.
 
 ```lua
-local consumer = require("termichatter.consumer")
+local consumer = require("pipe-line.consumer")
 
 local c = consumer.create({
     inputQueue = myInputQueue,      -- Required: where to read messages
@@ -198,7 +198,7 @@ local c = consumer.create({
 ```lua
 local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
-local consumer = require("termichatter.consumer")
+local consumer = require("pipe-line.consumer")
 
 local input = MpscQueue.new()
 local output = MpscQueue.new()
@@ -220,7 +220,7 @@ local task = c:spawn()
 -- Push some messages
 input:push({ data = "hello" })
 input:push({ data = "world" })
-input:push({ type = "termichatter.shutdown" })  -- Signal done
+input:push({ type = "pipe-line.shutdown" })  -- Signal done
 
 -- Wait for consumer to finish
 task:await(1000, 10)
@@ -349,8 +349,8 @@ This is useful when you want interval-based or adaptive scheduling rather than c
 **Example: With interval driver**
 
 ```lua
-local drivers = require("termichatter.drivers")
-local consumer = require("termichatter.consumer")
+local drivers = require("pipe-line.drivers")
+local consumer = require("pipe-line.consumer")
 
 local c = consumer.create({
     inputQueue = myQueue,

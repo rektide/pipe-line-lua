@@ -4,8 +4,8 @@ This guide describes lifecycle orchestration on `Line`.
 
 References:
 
-- [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
-- [`/lua/termichatter/segment/completion.lua`](/lua/termichatter/segment/completion.lua)
+- [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
+- [`/lua/pipe-line/segment/completion.lua`](/lua/pipe-line/segment/completion.lua)
 - [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md)
 
 ## Line Stop Future

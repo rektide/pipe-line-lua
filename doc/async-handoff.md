@@ -3,17 +3,17 @@
 This guide covers explicit async boundaries via `mpsc_handoff`.
 
 References:
-- [`/lua/termichatter/segment/mpsc.lua`](/lua/termichatter/segment/mpsc.lua)
-- [`/lua/termichatter/consumer.lua`](/lua/termichatter/consumer.lua)
-- [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
+- [`/lua/pipe-line/segment/mpsc.lua`](/lua/pipe-line/segment/mpsc.lua)
+- [`/lua/pipe-line/consumer.lua`](/lua/pipe-line/consumer.lua)
+- [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
 
 ## Basic Pattern
 
 Insert `mpsc_handoff` in the pipe where you want a queue boundary.
 
 ```lua
-local app = termichatter({ source = "myapp" })
-app.pipe = termichatter.Pipe({
+local app = pipe-line({ source = "myapp" })
+app.pipe = pipe-line.Pipe({
   "timestamper",
   "mpsc_handoff",
   "cloudevent",
@@ -25,12 +25,12 @@ app:info("async message")
 ## Custom Handoff
 
 ```lua
-local segment = require("termichatter.segment")
+local segment = require("pipe-line.segment")
 local handoff = segment.mpsc_handoff({
   strategy = "fork", -- self | clone | fork
 })
 
-app.pipe = termichatter.Pipe({ handoff, "cloudevent" })
+app.pipe = pipe-line.Pipe({ handoff, "cloudevent" })
 ```
 
 ## Lifecycle
@@ -54,14 +54,14 @@ app.pipe = termichatter.Pipe({ handoff, "cloudevent" })
 For manual testing/control, disable auto-start and pop envelopes yourself.
 
 ```lua
-local app = termichatter({ autoStartConsumers = false })
-local handoff = termichatter.segment.mpsc_handoff()
-app.pipe = termichatter.Pipe({ handoff, "capture" })
+local app = pipe-line({ autoStartConsumers = false })
+local handoff = pipe-line.segment.mpsc_handoff()
+app.pipe = pipe-line.Pipe({ handoff, "capture" })
 
 app:log({ message = "manual" })
 
 local envelope = handoff.queue:pop()
-local continuation = envelope[termichatter.segment.HANDOFF_FIELD]
+local continuation = envelope[pipe-line.segment.HANDOFF_FIELD]
 continuation:next()
 ```
 

@@ -2,11 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-02-25
-- Decision makers: termichatter maintainers
+- Decision makers: pipe-line maintainers
 
 ## Decision
 
-Termichatter will model async queue handoff as explicit boundary segments in the pipe (for example `mpsc_handoff`), not as implicit per-position segment capability.
+Pipe-line will model async queue handoff as explicit boundary segments in the pipe (for example `mpsc_handoff`), not as implicit per-position segment capability.
 
 We keep the project vocabulary on **segment** (not "stage").
 
@@ -16,9 +16,9 @@ Current implementation supports async handoff by position (`line.mpsc[pos]`) and
 
 Relevant implementation files:
 
-- [`/lua/termichatter/run.lua`](/lua/termichatter/run.lua)
-- [`/lua/termichatter/consumer.lua`](/lua/termichatter/consumer.lua)
-- [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
+- [`/lua/pipe-line/run.lua`](/lua/pipe-line/run.lua)
+- [`/lua/pipe-line/consumer.lua`](/lua/pipe-line/consumer.lua)
+- [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
 
 Design discussion highlighted that runs are self-iterating cursors, and async behavior is an execution detail. We want queue boundaries to be visible and stable under pipe mutation.
 
@@ -85,7 +85,7 @@ Cons:
 
 ## Rationale
 
-We choose Option B because explicitness and structural stability are stronger design goals for termichatter at this stage than dynamic policy convenience.
+We choose Option B because explicitness and structural stability are stronger design goals for pipe-line at this stage than dynamic policy convenience.
 
 This aligns with existing architecture direction where pipe entries and rewrites are central. If queue boundaries are semantically meaningful, they should be represented directly in the pipe.
 

@@ -2,11 +2,11 @@
 
 - Status: Proposed
 - Date: 2026-02-27
-- Decision makers: termichatter maintainers
+- Decision makers: pipe-line maintainers
 
 ## Decision
 
-Transport wrappers (`defineMpsc`, `defineSafeTask`, `defineTask`) build on the core segment contract from [`/lua/termichatter/segment/define.lua`](/lua/termichatter/segment/define.lua) and keep `handler(run)` as the per-message entrypoint.
+Transport wrappers (`defineMpsc`, `defineSafeTask`, `defineTask`) build on the core segment contract from [`/lua/pipe-line/segment/define.lua`](/lua/pipe-line/segment/define.lua) and keep `handler(run)` as the per-message entrypoint.
 
 - `handler_async` is not part of the core contract.
 - `configure_segment` is removed from transport policy contract.
@@ -69,7 +69,7 @@ This ADR does not require a continuation map shape. A single continuation slot i
 - **Per-run control flow**: initiated by `handler(run)`.
 - **Transport lifecycle mechanics**: `ensure_prepared`/`ensure_stopped` policy hooks.
 - **Transport message mechanics**: optional `transport.handler(...)` using handler naming.
-- **Protocol pass-through rules**: remain in [`/lua/termichatter/segment/define.lua`](/lua/termichatter/segment/define.lua).
+- **Protocol pass-through rules**: remain in [`/lua/pipe-line/segment/define.lua`](/lua/pipe-line/segment/define.lua).
 
 ## Rationale
 

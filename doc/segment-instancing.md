@@ -3,8 +3,8 @@
 This document explains how resolved segment tables become per-line runtime instances.
 
 References:
-- [`/lua/termichatter/line.lua`](/lua/termichatter/line.lua)
-- [`/lua/termichatter/segment.lua`](/lua/termichatter/segment.lua)
+- [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
+- [`/lua/pipe-line/segment.lua`](/lua/pipe-line/segment.lua)
 
 ## Why Instancing Exists
 
