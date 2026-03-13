@@ -55,14 +55,15 @@ app.pipe = pipeline.Pipe({ handoff, "cloudevent" })
 For manual testing/control, disable auto-start and pop envelopes yourself.
 
 ```lua
-local app = pipe-line({ autoStartConsumers = false })
-local handoff = pipe-line.segment.mpsc_handoff()
-app.pipe = pipe-line.Pipe({ handoff, "capture" })
+local pipeline = require("pipe-line")
+local app = pipeline({ autoStartConsumers = false })
+local handoff = pipeline.segment.mpsc_handoff()
+app.pipe = pipeline.Pipe({ handoff, "capture" })
 
 app:log({ message = "manual" })
 
 local envelope = handoff.queue:pop()
-local continuation = envelope[pipe-line.segment.HANDOFF_FIELD]
+local continuation = envelope[pipeline.segment.HANDOFF_FIELD]
 continuation:next()
 ```
 
