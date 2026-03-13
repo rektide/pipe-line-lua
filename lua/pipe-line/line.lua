@@ -102,8 +102,8 @@ local function instantiate_segment(line, prototype, fallback_type)
 		return prototype
 	end
 
-	instance._termichatter_line = line
-	instance._termichatter_is_instance = true
+	instance._pipe_line_line = line
+	instance._pipe_line_is_instance = true
 
 	return ensure_segment_identity(line, instance, fallback_type)
 end
@@ -111,7 +111,7 @@ end
 local function resolve_pipe_segment(line, pos, materialize_factory)
 	local seg = line.pipe[pos]
 	if type(seg) ~= "string" then
-		if type(seg) == "table" and rawget(seg, "_termichatter_line") ~= line then
+		if type(seg) == "table" and rawget(seg, "_pipe_line_line") ~= line then
 			seg = instantiate_segment(line, seg, seg.type)
 			line.pipe[pos] = seg
 		end

@@ -5,7 +5,7 @@ local M = {}
 
 function M.new(config)
 	config = config or {}
-	local default_handoff_field = config.handoff_field or "__termichatter_mpsc_continuation"
+	local default_handoff_field = config.handoff_field or "__pipe_line_mpsc_continuation"
 	local function ensure_defaults(segment)
 		if segment.queue == nil then
 			segment.queue = MpscQueue.new()

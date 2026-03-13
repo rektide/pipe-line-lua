@@ -5,10 +5,10 @@ local common = require("pipe-line.segment.define.common")
 local M = {}
 
 local function ensure_state(segment)
-	if type(segment._termichatter_task_state) ~= "table" then
-		segment._termichatter_task_state = {}
+	if type(segment._pipe_line_task_state) ~= "table" then
+		segment._pipe_line_task_state = {}
 	end
-	return segment._termichatter_task_state
+	return segment._pipe_line_task_state
 end
 
 local function ensure_processor(state, segment, context, runtime)

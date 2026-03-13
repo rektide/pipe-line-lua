@@ -1,4 +1,4 @@
---- Standard segment library for termichatter
+--- Standard segment library for pipe-line
 --- Common processing segment for pipeline
 local M = {}
 local logutil = require("pipe-line.log")
@@ -58,7 +58,7 @@ M.cloudevent = M.define({
 
 		input.specversion = input.specversion or "1.0"
 		input.source = input.source or run.source or (run.line and logutil.full_source(run.line))
-		input.type = input.type or "termichatter.log"
+		input.type = input.type or "pipe-line.log"
 
 		return input
 	end,

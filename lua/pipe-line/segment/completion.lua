@@ -2,7 +2,7 @@
 local M = {}
 local Future = require("coop.future").Future
 
-M.PROTOCOL_FIELD = "termichatter_protocol"
+M.PROTOCOL_FIELD = "pipe_line_protocol"
 M.COMPLETION_FIELD = "mpsc_completion"
 M.COMPLETION_NAME_FIELD = "mpsc_completion_name"
 

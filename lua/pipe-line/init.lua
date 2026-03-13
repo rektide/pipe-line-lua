@@ -1,4 +1,4 @@
---- termichatter: structured data-flow pipeline
+--- pipe-line: structured data-flow pipeline
 --- Thin entry point: registers built-in segment, exports modules
 local Line = require("pipe-line.line")
 local Pipe = require("pipe-line.pipe")
@@ -47,7 +47,7 @@ registry:register("lattice_resolver", {
 	handler = resolver.lattice_resolver,
 })
 
--- Module is callable: termichatter(config) creates a Line
+-- Module is callable: pipe-line(config) creates a Line
 setmetatable(M, {
 	__call = function(_, config)
 		config = config or {}

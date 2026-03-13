@@ -4,7 +4,7 @@ local mpsc_define = require("pipe-line.segment.define.mpsc")(define)
 
 local M = {}
 
-M.HANDOFF_FIELD = "__termichatter_handoff_run"
+M.HANDOFF_FIELD = "__pipe_line_handoff_run"
 
 function M.mpsc_handoff_factory()
 	return {

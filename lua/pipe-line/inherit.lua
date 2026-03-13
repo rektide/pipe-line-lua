@@ -1,4 +1,4 @@
---- Inheritance utility for termichatter
+--- Inheritance utility for pipe-line
 --- Provides helper for metatable-based inheritance chain
 local M = {}
 
