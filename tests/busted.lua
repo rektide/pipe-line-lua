@@ -26,7 +26,7 @@ local function split_paths(value)
 end
 
 local function coop_candidates()
-	local from_env = vim.env.TERMICHATTER_COOP_PATHS
+	local from_env = vim.env.PIPE_LINE_COOP_PATHS
 	if from_env and from_env ~= "" then
 		return split_paths(from_env)
 	end
@@ -47,13 +47,13 @@ local function find_coop_root()
 		end
 	end
 
-	error("could not find coop.nvim checkout; set TERMICHATTER_COOP_PATHS to a ':' or ';' separated list")
+	error("could not find coop.nvim checkout; set PIPE_LINE_COOP_PATHS to a ':' or ';' separated list")
 end
 
 local coop_root = find_coop_root()
 vim.opt.runtimepath:prepend(coop_root)
 
-local impl = vim.env.TERMICHATTER_IMPL or "default"
+local impl = vim.env.PIPE_LINE_IMPL or "default"
 local impl_lua_root = cwd .. "/implementations/" .. impl .. "/lua"
 local impl_init = impl_lua_root .. "/pipe-line/init.lua"
 if impl ~= "default" and vim.fn.filereadable(impl_init) == 1 then
