@@ -1,9 +1,9 @@
 --- Run: a lightweight cursor/context that walk a line's pipe
 --- Methods live on the prototype, not copied per-instance
 --- Supports clone/fork/own for fan-out and independence
-local inherit = require("termichatter.inherit")
-local Pipe = require("termichatter.pipe")
-local util = require("termichatter.util")
+local inherit = require("pipe-line.inherit")
+local Pipe = require("pipe-line.pipe")
+local util = require("pipe-line.util")
 
 local Run = {}
 Run.type = "run"

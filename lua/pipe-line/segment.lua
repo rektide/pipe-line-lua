@@ -1,10 +1,10 @@
 --- Standard segment library for termichatter
 --- Common processing segment for pipeline
 local M = {}
-local logutil = require("termichatter.log")
-local completion = require("termichatter.segment.completion")
-local define = require("termichatter.segment.define")
-local mpsc = require("termichatter.segment.mpsc")
+local logutil = require("pipe-line.log")
+local completion = require("pipe-line.segment.completion")
+local define = require("pipe-line.segment.define")
+local mpsc = require("pipe-line.segment.mpsc")
 
 M.HANDOFF_FIELD = mpsc.HANDOFF_FIELD
 

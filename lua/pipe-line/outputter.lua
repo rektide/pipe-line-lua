@@ -1,5 +1,5 @@
 --- Outputter: destination for processed message
-local util = require("termichatter.util")
+local util = require("pipe-line.util")
 local coop = require("coop")
 
 local M = {}

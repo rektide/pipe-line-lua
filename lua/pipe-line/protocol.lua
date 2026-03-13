@@ -1,5 +1,5 @@
 --- Protocol helpers for control runs.
-local completion = require("termichatter.segment.completion")
+local completion = require("pipe-line.segment.completion")
 
 local M = {}
 

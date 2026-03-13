@@ -1,4 +1,4 @@
-local protocol = require("termichatter.protocol")
+local protocol = require("pipe-line.protocol")
 
 local M = {}
 

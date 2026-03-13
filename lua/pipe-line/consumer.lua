@@ -1,8 +1,8 @@
 --- Consumer: async driver for mpsc_handoff segment
 --- Drives explicit queue boundary segments in a line
 local coop = require("coop")
-local segment = require("termichatter.segment")
-local util = require("termichatter.util")
+local segment = require("pipe-line.segment")
+local util = require("pipe-line.util")
 
 local M = {}
 

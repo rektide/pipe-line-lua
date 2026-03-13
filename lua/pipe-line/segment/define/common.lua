@@ -1,4 +1,4 @@
-local util = require("termichatter.util")
+local util = require("pipe-line.util")
 
 local M = {}
 

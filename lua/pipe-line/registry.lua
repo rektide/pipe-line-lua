@@ -1,6 +1,6 @@
 --- Registry: repository of known segment type
 --- A line inherits from a registry for segment resolution
-local inherit = require("termichatter.inherit")
+local inherit = require("pipe-line.inherit")
 
 local M = {}
 

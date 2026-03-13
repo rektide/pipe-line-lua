@@ -1,4 +1,4 @@
-local common = require("termichatter.segment.define.common")
+local common = require("pipe-line.segment.define.common")
 
 local function build_segment(define, spec, transport)
 	local segment = common.copy_spec(spec)

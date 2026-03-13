@@ -1,18 +1,17 @@
 --- termichatter: structured data-flow pipeline
 --- Thin entry point: registers built-in segment, exports modules
-local Line = require("termichatter.line")
-local Pipe = require("termichatter.pipe")
-local Run = require("termichatter.run")
-local registry = require("termichatter.registry")
-local segment = require("termichatter.segment")
-local consumer = require("termichatter.consumer")
-local outputter = require("termichatter.outputter")
-local driver = require("termichatter.driver")
-local protocol = require("termichatter.protocol")
-local Future = require("coop.future").Future
-local resolver = require("termichatter.resolver")
-local inherit = require("termichatter.inherit")
-local log = require("termichatter.log")
+local Line = require("pipe-line.line")
+local Pipe = require("pipe-line.pipe")
+local Run = require("pipe-line.run")
+local registry = require("pipe-line.registry")
+local segment = require("pipe-line.segment")
+local consumer = require("pipe-line.consumer")
+local outputter = require("pipe-line.outputter")
+local driver = require("pipe-line.driver")
+local protocol = require("pipe-line.protocol")
+local resolver = require("pipe-line.resolver")
+local inherit = require("pipe-line.inherit")
+local log = require("pipe-line.log")
 
 local M = {}
 

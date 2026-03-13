@@ -1,6 +1,6 @@
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
-local define = require("termichatter.segment.define")
-local mpsc_define = require("termichatter.segment.define.mpsc")(define)
+local define = require("pipe-line.segment.define")
+local mpsc_define = require("pipe-line.segment.define.mpsc")(define)
 
 local M = {}
 

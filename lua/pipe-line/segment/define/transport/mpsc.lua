@@ -1,5 +1,5 @@
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
-local common = require("termichatter.segment.define.common")
+local common = require("pipe-line.segment.define.common")
 
 local M = {}
 
@@ -22,7 +22,7 @@ function M.new(config)
 			ensure_defaults(segment)
 			local line = context and context.line
 			if line and (context.force == true or line.autoStartConsumers ~= false) then
-				return require("termichatter.consumer").ensure_queue_consumer(line, segment.queue)
+				return require("pipe-line.consumer").ensure_queue_consumer(line, segment.queue)
 			end
 			return nil
 		end,
@@ -31,7 +31,7 @@ function M.new(config)
 			ensure_defaults(segment)
 			local line = context and context.line
 			if line then
-				return require("termichatter.consumer").stop_queue_consumer(line, segment.queue)
+				return require("pipe-line.consumer").stop_queue_consumer(line, segment.queue)
 			end
 			return nil
 		end,

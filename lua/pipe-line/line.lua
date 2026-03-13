@@ -1,13 +1,11 @@
 --- Line: pipeline definition and execution entry point
 --- Holds a pipe, registry, output, config. Methods on shared prototype.
-local inherit = require("termichatter.inherit")
-local Pipe = require("termichatter.pipe")
-local coop = require("coop")
-local cooputil = require("termichatter.coop")
-local segment = require("termichatter.segment")
-local logutil = require("termichatter.log")
-local Future = require("coop.future").Future
-local util = require("termichatter.util")
+local inherit = require("pipe-line.inherit")
+local Pipe = require("pipe-line.pipe")
+local cooputil = require("pipe-line.coop")
+local segment = require("pipe-line.segment")
+local logutil = require("pipe-line.log")
+local util = require("pipe-line.util")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
 local Line = {}
@@ -253,7 +251,7 @@ end
 ---@param config? table Config to pass to Run
 ---@return table run The Run instance
 function Line:run(config)
-	local Run = require("termichatter.run")
+	local Run = require("pipe-line.run")
 	return Run(self, config)
 end
 

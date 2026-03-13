@@ -1,6 +1,6 @@
 local task = require("coop.task")
 local Future = require("coop.future").Future
-local common = require("termichatter.segment.define.common")
+local common = require("pipe-line.segment.define.common")
 
 local M = {}
 
