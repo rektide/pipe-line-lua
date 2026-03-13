@@ -1,6 +1,6 @@
-# termichatter
+# pipe-line
 
-> Structured data-flow pipeline for Neovim, with async queue handoff via [coop.nvim](https://github.com/gregorias/coop.nvim)
+> Structured data-flow pipeline for Lua, with async queue handoff via [coop.nvim](https://github.com/gregorias/coop.nvim)
 
 ## Core Concept
 
@@ -34,7 +34,7 @@ Requires [coop.nvim](https://github.com/gregorias/coop.nvim).
 ```lua
 -- lazy.nvim
 {
-    "rektide/nvim-termichatter",
+    "rektide/pipe-line",
     dependencies = { "gregorias/coop.nvim" },
 }
 ```
@@ -42,10 +42,10 @@ Requires [coop.nvim](https://github.com/gregorias/coop.nvim).
 ## Quick Start
 
 ```lua
-local termichatter = require("termichatter")
+local pipeline = require("pipe-line")
 
 -- Create a pipeline (module is callable)
-local app = termichatter({ source = "myapp:main" })
+local app = pipeline({ source = "myapp:main" })
 
 -- Log directly on the line
 app:info("Application starting")
@@ -75,7 +75,7 @@ startup:debug("Config loaded", { config = { debug = true } })
 A Line is the pipeline definition. Create one by calling the module:
 
 ```lua
-local app = termichatter({ source = "myapp" })
+local app = pipeline({ source = "myapp" })
 ```
 
 Configuration:
@@ -111,7 +111,7 @@ local worker = app:fork("worker")
 The ordered sequence of segment. A first-class object with revision tracking and splice journaling.
 
 ```lua
-local Pipe = require("termichatter.pipe")
+local Pipe = require("pipe-line.pipe")
 
 local p = Pipe({ "timestamper", "enricher", "validator" })
 p:splice(2, 0, "new_segment")  -- insert at position 2
@@ -157,7 +157,7 @@ When run-level continuation tracking is needed, use `run.continuation` keyed by 
 A lightweight cursor that walks the pipe. Supports cloning for fan-out and ownership for independence.
 
 ```lua
-local Run = require("termichatter.run")
+local Run = require("pipe-line.run")
 
 -- Normally created via line:run(), but can be manual:
 local r = Run(line, { input = { message = "hello" }, noStart = true })
@@ -203,10 +203,10 @@ end)
 Repository of known segment. Supports inheritance via `derive()`:
 
 ```lua
-local Registry = require("termichatter.registry")
+local Registry = require("pipe-line.registry")
 
 -- Global registry (pre-populated with built-in segment)
-local reg = termichatter.registry
+local reg = pipeline.registry
 reg:register("my_segment", handler)
 
 -- Child registry inheriting from parent
@@ -221,7 +221,7 @@ The registry maintains an `emits_index` — a map from fact name to segment that
 A segment that dynamically splices dependency-satisfying segment into the pipe at runtime. It inspects downstream `wants`, queries the registry's `emits_index`, computes a topological sort (Kahn's algorithm), and splices the result.
 
 ```lua
-local app = termichatter({
+local app = pipeline({
     pipe = { "timestamper", "lattice_resolver", "final_output" },
 })
 
@@ -244,7 +244,7 @@ Options (set on line or run):
 Static resolution without running:
 
 ```lua
-local resolver = require("termichatter.resolver")
+local resolver = require("pipe-line.resolver")
 resolver.resolve_line(my_line)  -- modifies line.pipe directly
 ```
 
@@ -253,13 +253,13 @@ resolver.resolve_line(my_line)  -- modifies line.pipe directly
 Async handoff is explicit: insert a `mpsc_handoff` segment into the pipe.
 
 ```lua
-local app = termichatter({ source = "myapp" })
-local segment = require("termichatter.segment")
+local app = pipeline({ source = "myapp" })
+local segment = require("pipe-line.segment")
 
 -- Optional custom boundary with strategy/queue control
 local custom_handoff = segment.mpsc_handoff({ strategy = "fork" })
 
-app.pipe = require("termichatter.pipe")({
+app.pipe = require("pipe-line.pipe")({
     "timestamper",
     "mpsc_handoff", -- default boundary from registry (independent queue)
     -- custom_handoff, -- use this instead if you want custom strategy/queue
@@ -274,8 +274,8 @@ app:info("async message")
 app:close():await(500, 10)
 
 -- Advanced control: disable auto-start and start later
-local delayed = termichatter({ autoStartConsumers = false })
-delayed.pipe = require("termichatter.pipe")({ "mpsc_handoff", "cloudevent" })
+local delayed = pipeline({ autoStartConsumers = false })
+delayed.pipe = require("pipe-line.pipe")({ "mpsc_handoff", "cloudevent" })
 delayed:info("queued, not yet consumed")
 delayed:ensure_prepared() -- begin draining handoff queues
 ```
@@ -288,7 +288,7 @@ Message that complete the pipe are pushed to the line's `output` queue:
 
 ```lua
 local coop = require("coop")
-local app = termichatter({ source = "myapp" })
+local app = pipeline({ source = "myapp" })
 
 -- Consume output
 coop.spawn(function()
@@ -309,7 +309,7 @@ end)
 | `outputter.fanout(config)` | Forward to multiple outputter |
 
 ```lua
-local outputter = require("termichatter.outputter")
+local outputter = require("pipe-line.outputter")
 
 -- Buffer outputter with queue-driven consumer
 local bufOut = outputter.buffer({
@@ -330,7 +330,7 @@ local fan = outputter.fanout({
 Schedule periodic execution:
 
 ```lua
-local driver = require("termichatter.driver")
+local driver = require("pipe-line.driver")
 
 -- Fixed interval
 local d = driver.interval(100, function()
@@ -352,7 +352,7 @@ local d = driver.rescheduler({
 Implements the [mpsc-completion](https://github.com/rektide/mpsc-completion) protocol for coordinating async pipeline shutdown:
 
 ```lua
-local protocol = require("termichatter.protocol")
+local protocol = require("pipe-line.protocol")
 
 -- Build protocol runs (control is on run fields, not input)
 local hello = protocol.completion.completion_run("hello", "worker:a")
@@ -403,7 +403,7 @@ Message are Lua table with conventional field:
 | `time` | High-resolution timestamp (hrtime nanosecond) |
 | `id` | UUID v4 identifier |
 | `source` | Origin URI (e.g. `"myapp:auth:jwt"`) |
-| `type` | Event type (`"termichatter.log"`) |
+| `type` | Event type (`"pipe-line.log"`) |
 | `specversion` | CloudEvents version (`"1.0"`) |
 | `level` | Numeric log level (multiples of 10) |
 | `message` | Human-readable message string |
@@ -415,7 +415,7 @@ Message are Lua table with conventional field:
 nvim -l tests/busted.lua
 
 # Run specific test file
-nvim -l tests/busted.lua tests/termichatter/run_spec.lua
+nvim -l tests/busted.lua tests/pipe-line/run_spec.lua
 ```
 
 ## Benchmarking
@@ -433,18 +433,18 @@ cargo run --bin bench-history
 
 | Module | Export | Description |
 |--------|--------|-------------|
-| `termichatter` | callable → Line | Entry point, registers built-in segment |
-| `termichatter.line` | Line | Pipeline class, callable constructor |
-| `termichatter.pipe` | Pipe | Segment sequence, callable constructor |
-| `termichatter.run` | Run | Execution cursor, callable constructor |
-| `termichatter.registry` | Registry | Segment repository, callable constructor |
-| `termichatter.segment` | table | Built-in segment definition |
-| `termichatter.resolver` | table | Lattice resolver + Kahn's sort |
-| `termichatter.consumer` | table | Async mpsc consumer |
-| `termichatter.outputter` | table | Output destination (buffer, file, jsonl, fanout) |
-| `termichatter.driver` | table | Periodic scheduling (interval, rescheduler) |
-| `termichatter.protocol` | table | Completion/shutdown protocol |
-| `termichatter.inherit` | table | Metatable inheritance utility |
+| `pipe-line` | callable → Line | Entry point, registers built-in segment |
+| `pipe-line.line` | Line | Pipeline class, callable constructor |
+| `pipe-line.pipe` | Pipe | Segment sequence, callable constructor |
+| `pipe-line.run` | Run | Execution cursor, callable constructor |
+| `pipe-line.registry` | Registry | Segment repository, callable constructor |
+| `pipe-line.segment` | table | Built-in segment definition |
+| `pipe-line.resolver` | table | Lattice resolver + Kahn's sort |
+| `pipe-line.consumer` | table | Async mpsc consumer |
+| `pipe-line.outputter` | table | Output destination (buffer, file, jsonl, fanout) |
+| `pipe-line.driver` | table | Periodic scheduling (interval, rescheduler) |
+| `pipe-line.protocol` | table | Completion/shutdown protocol |
+| `pipe-line.inherit` | table | Metatable inheritance utility |
 
 ## License
 
