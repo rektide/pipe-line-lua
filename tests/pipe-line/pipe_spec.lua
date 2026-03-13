@@ -1,10 +1,10 @@
---- Busted tests for termichatter pipe object
-describe("termichatter.pipe", function()
+--- Busted tests for pipe-line pipe object
+describe("pipe-line.pipe", function()
 	local Pipe
 
 	before_each(function()
-		package.loaded["termichatter.pipe"] = nil
-		Pipe = require("termichatter.pipe")
+		package.loaded["pipe-line.pipe"] = nil
+		Pipe = require("pipe-line.pipe")
 	end)
 
 	describe("new", function()

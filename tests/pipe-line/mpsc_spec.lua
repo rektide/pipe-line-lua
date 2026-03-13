@@ -1,21 +1,21 @@
 --- Busted tests for explicit mpsc_handoff behavior and ergonomics
 local coop = require("coop")
 
-describe("termichatter.mpsc", function()
-	local termichatter, Pipe
+describe("pipe-line.mpsc", function()
+	local pipeline, Pipe
 
 	before_each(function()
-		package.loaded["termichatter"] = nil
-		package.loaded["termichatter.init"] = nil
-		package.loaded["termichatter.registry"] = nil
-		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.run"] = nil
-		package.loaded["termichatter.pipe"] = nil
-		package.loaded["termichatter.segment"] = nil
-		package.loaded["termichatter.consumer"] = nil
-		package.loaded["termichatter.protocol"] = nil
-		termichatter = require("termichatter")
-		Pipe = require("termichatter.pipe")
+		package.loaded["pipe-line"] = nil
+		package.loaded["pipe-line.init"] = nil
+		package.loaded["pipe-line.registry"] = nil
+		package.loaded["pipe-line.line"] = nil
+		package.loaded["pipe-line.run"] = nil
+		package.loaded["pipe-line.pipe"] = nil
+		package.loaded["pipe-line.segment"] = nil
+		package.loaded["pipe-line.consumer"] = nil
+		package.loaded["pipe-line.protocol"] = nil
+		pipeline = require("pipe-line")
+		Pipe = require("pipe-line.pipe")
 	end)
 
 	local function pop_with_timeout(queue, timeout)
@@ -25,7 +25,7 @@ describe("termichatter.mpsc", function()
 	end
 
 	it("runs async with named mpsc_handoff via normal line:log", function()
-		local app = termichatter()
+		local app = pipeline()
 		local seen = {}
 
 		app:addSegment("capture", function(run)
@@ -43,7 +43,7 @@ describe("termichatter.mpsc", function()
 	end)
 
 	it("auto-initializes consumer when first handoff executes", function()
-		local app = termichatter()
+		local app = pipeline()
 		local seen = {}
 
 		app:addSegment("capture", function(run)
@@ -66,7 +66,7 @@ describe("termichatter.mpsc", function()
 	end)
 
 	it("delays processing until explicit prepare_segments when autoStartConsumers is false", function()
-		local app = termichatter({ autoStartConsumers = false })
+		local app = pipeline({ autoStartConsumers = false })
 		local seen = {}
 
 		app:addSegment("capture", function(run)
@@ -90,9 +90,9 @@ describe("termichatter.mpsc", function()
 	end)
 
 	it("supports manual continuation by popping handoff queue payload", function()
-		local app = termichatter({ autoStartConsumers = false })
+		local app = pipeline({ autoStartConsumers = false })
 		local seen = false
-		local handoff = termichatter.segment.mpsc_handoff()
+		local handoff = pipeline.segment.mpsc_handoff()
 
 		app:addSegment("capture", function(run)
 			seen = true
@@ -103,7 +103,7 @@ describe("termichatter.mpsc", function()
 		app:log({ message = "manual" })
 
 		local envelope = pop_with_timeout(handoff.queue)
-		local continuation = envelope[termichatter.segment.HANDOFF_FIELD]
+		local continuation = envelope[pipeline.segment.HANDOFF_FIELD]
 		continuation:next()
 
 		local out = pop_with_timeout(app.output)

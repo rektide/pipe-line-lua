@@ -1,20 +1,20 @@
---- Busted tests for termichatter lattice resolver
+--- Busted tests for pipe-line lattice resolver
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
-describe("termichatter.resolver", function()
+describe("pipe-line.resolver", function()
 	local resolver, registry, Pipe, Line, Run
 
 	before_each(function()
-		package.loaded["termichatter.resolver"] = nil
-		package.loaded["termichatter.registry"] = nil
-		package.loaded["termichatter.pipe"] = nil
-		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.run"] = nil
-		resolver = require("termichatter.resolver")
-		registry = require("termichatter.registry")
-		Pipe = require("termichatter.pipe")
-		Line = require("termichatter.line")
-		Run = require("termichatter.run")
+		package.loaded["pipe-line.resolver"] = nil
+		package.loaded["pipe-line.registry"] = nil
+		package.loaded["pipe-line.pipe"] = nil
+		package.loaded["pipe-line.line"] = nil
+		package.loaded["pipe-line.run"] = nil
+		resolver = require("pipe-line.resolver")
+		registry = require("pipe-line.registry")
+		Pipe = require("pipe-line.pipe")
+		Line = require("pipe-line.line")
+		Run = require("pipe-line.run")
 		registry:register("lattice_resolver", {
 			wants = {},
 			emits = {},

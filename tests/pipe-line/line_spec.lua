@@ -1,20 +1,20 @@
---- Busted tests for termichatter Line object
+--- Busted tests for pipe-line Line object
 local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
-describe("termichatter.line", function()
+describe("pipe-line.line", function()
 	local Line, Pipe, registry
 
 	before_each(function()
-		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.pipe"] = nil
-		package.loaded["termichatter.registry"] = nil
-		package.loaded["termichatter.run"] = nil
-		package.loaded["termichatter.segment"] = nil
-		package.loaded["termichatter.log"] = nil
-		Line = require("termichatter.line")
-		Pipe = require("termichatter.pipe")
-		registry = require("termichatter.registry")
+		package.loaded["pipe-line.line"] = nil
+		package.loaded["pipe-line.pipe"] = nil
+		package.loaded["pipe-line.registry"] = nil
+		package.loaded["pipe-line.run"] = nil
+		package.loaded["pipe-line.segment"] = nil
+		package.loaded["pipe-line.log"] = nil
+		Line = require("pipe-line.line")
+		Pipe = require("pipe-line.pipe")
+		registry = require("pipe-line.registry")
 	end)
 
 	describe("construction", function()
@@ -46,7 +46,7 @@ describe("termichatter.line", function()
 		end)
 
 		it("select_segments picks by type with unique ids", function()
-			local segment = require("termichatter.segment")
+			local segment = require("pipe-line.segment")
 			local line = Line({ registry = registry, pipe = { segment.completion, segment.completion } })
 			local selected = line:select_segments("completion")
 
@@ -58,7 +58,7 @@ describe("termichatter.line", function()
 		end)
 
 		it("select_segments supports predicate selector", function()
-			local segment = require("termichatter.segment")
+			local segment = require("pipe-line.segment")
 			local line = Line({ registry = registry, pipe = { segment.completion, segment.timestamper } })
 			local selected = line:select_segments(function(seg)
 				return seg.type == "timestamper"
@@ -69,7 +69,7 @@ describe("termichatter.line", function()
 		end)
 
 		it("auto_id false skips id assignment", function()
-			local segment = require("termichatter.segment")
+			local segment = require("pipe-line.segment")
 			local line = Line({
 				registry = registry,
 				pipe = { segment.completion },
@@ -278,7 +278,7 @@ describe("termichatter.line", function()
 		end)
 
 		it("close returns line stopped deferred and resolves", function()
-			local segment = require("termichatter.segment")
+			local segment = require("pipe-line.segment")
 			local line = Line({ registry = registry, pipe = { segment.completion } })
 
 			local stopped = line:close()
@@ -304,7 +304,7 @@ describe("termichatter.line", function()
 		end)
 
 		it("protocol runs pass through filters by default", function()
-			local segment = require("termichatter.segment")
+			local segment = require("pipe-line.segment")
 			local line = Line({
 				registry = registry,
 				pipe = { segment.level_filter, segment.completion },

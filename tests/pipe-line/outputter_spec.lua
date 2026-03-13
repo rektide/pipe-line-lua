@@ -1,12 +1,12 @@
---- Busted tests for termichatter outputter queue semantics
+--- Busted tests for pipe-line outputter queue semantics
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
-describe("termichatter.outputter", function()
+describe("pipe-line.outputter", function()
 	local outputter
 
 	before_each(function()
-		package.loaded["termichatter.outputter"] = nil
-		outputter = require("termichatter.outputter")
+		package.loaded["pipe-line.outputter"] = nil
+		outputter = require("pipe-line.outputter")
 	end)
 
 	describe("buffer outputter", function()

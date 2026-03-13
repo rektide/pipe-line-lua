@@ -1,33 +1,33 @@
---- Integration tests for termichatter end-to-end flow
+--- Integration tests for pipe-line end-to-end flow
 local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
-describe("termichatter integration", function()
-	local termichatter
+describe("pipe-line integration", function()
+	local pipeline
 	local outputter
 
 	before_each(function()
-		package.loaded["termichatter"] = nil
-		package.loaded["termichatter.init"] = nil
-		package.loaded["termichatter.registry"] = nil
-		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.run"] = nil
-		package.loaded["termichatter.pipe"] = nil
-		package.loaded["termichatter.segment"] = nil
-		package.loaded["termichatter.consumer"] = nil
-		package.loaded["termichatter.log"] = nil
-		package.loaded["termichatter.protocol"] = nil
-		package.loaded["termichatter.outputter"] = nil
-		package.loaded["termichatter.resolver"] = nil
-		termichatter = require("termichatter")
-		outputter = require("termichatter.outputter")
+		package.loaded["pipe-line"] = nil
+		package.loaded["pipe-line.init"] = nil
+		package.loaded["pipe-line.registry"] = nil
+		package.loaded["pipe-line.line"] = nil
+		package.loaded["pipe-line.run"] = nil
+		package.loaded["pipe-line.pipe"] = nil
+		package.loaded["pipe-line.segment"] = nil
+		package.loaded["pipe-line.consumer"] = nil
+		package.loaded["pipe-line.log"] = nil
+		package.loaded["pipe-line.protocol"] = nil
+		package.loaded["pipe-line.outputter"] = nil
+		package.loaded["pipe-line.resolver"] = nil
+		pipeline = require("pipe-line")
+		outputter = require("pipe-line.outputter")
 	end)
 
 	describe("logger to buffer outputter", function()
 		it("logs messages to a buffer", function()
 			local bufnr = vim.api.nvim_create_buf(false, true)
 
-			local app = termichatter({ source = "test:app" })
+			local app = pipeline({ source = "test:app" })
 
 			local bufOut = outputter.buffer({
 				n = bufnr,
@@ -63,7 +63,7 @@ describe("termichatter integration", function()
 		it("child line inherits parent context with composed source", function()
 			local captured = {}
 
-			local root = termichatter({
+			local root = pipeline({
 				source = "myapp",
 				environment = "production",
 			})
@@ -93,7 +93,7 @@ describe("termichatter integration", function()
 
 		describe("multiple producers single consumer", function()
 		it("handles concurrent logging from multiple logger", function()
-			local app = termichatter()
+			local app = pipeline()
 			local received = {}
 
 			local consumerTask = coop.spawn(function()
@@ -173,7 +173,7 @@ describe("termichatter integration", function()
 
 	describe("lattice resolver end-to-end", function()
 		it("resolves and executes injected segment", function()
-			local reg = termichatter.registry
+			local reg = pipeline.registry
 
 			reg:register("enricher", {
 				wants = {},
@@ -200,8 +200,8 @@ describe("termichatter integration", function()
 				end,
 			})
 
-			local Pipe = require("termichatter.pipe")
-			local app = termichatter()
+			local Pipe = require("pipe-line.pipe")
+			local app = pipeline()
 			app.pipe = Pipe({ "timestamper", "lattice_resolver", "final_output" })
 
 			app:log({ message = "resolve me" })

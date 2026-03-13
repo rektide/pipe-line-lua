@@ -1,18 +1,18 @@
---- Busted tests for termichatter run
+--- Busted tests for pipe-line run
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
-describe("termichatter.run", function()
+describe("pipe-line.run", function()
 	local Run, Pipe, registry, Line
 
 	before_each(function()
-		package.loaded["termichatter.run"] = nil
-		package.loaded["termichatter.pipe"] = nil
-		package.loaded["termichatter.registry"] = nil
-		package.loaded["termichatter.line"] = nil
-		Run = require("termichatter.run")
-		Pipe = require("termichatter.pipe")
-		registry = require("termichatter.registry")
-		Line = require("termichatter.line")
+		package.loaded["pipe-line.run"] = nil
+		package.loaded["pipe-line.pipe"] = nil
+		package.loaded["pipe-line.registry"] = nil
+		package.loaded["pipe-line.line"] = nil
+		Run = require("pipe-line.run")
+		Pipe = require("pipe-line.pipe")
+		registry = require("pipe-line.registry")
+		Line = require("pipe-line.line")
 	end)
 
 	local function make_line(segment_list, extra)

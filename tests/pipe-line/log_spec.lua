@@ -1,23 +1,23 @@
---- Busted tests for termichatter logging helpers and line log API
+--- Busted tests for pipe-line logging helpers and line log API
 local coop = require("coop")
 
-describe("termichatter.log", function()
-	local termichatter
+describe("pipe-line.log", function()
+	local pipeline
 	local logutil
 
 	before_each(function()
-		package.loaded["termichatter"] = nil
-		package.loaded["termichatter.init"] = nil
-		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.run"] = nil
-		package.loaded["termichatter.pipe"] = nil
-		package.loaded["termichatter.segment"] = nil
-		package.loaded["termichatter.registry"] = nil
-		package.loaded["termichatter.consumer"] = nil
-		package.loaded["termichatter.log"] = nil
+		package.loaded["pipe-line"] = nil
+		package.loaded["pipe-line.init"] = nil
+		package.loaded["pipe-line.line"] = nil
+		package.loaded["pipe-line.run"] = nil
+		package.loaded["pipe-line.pipe"] = nil
+		package.loaded["pipe-line.segment"] = nil
+		package.loaded["pipe-line.registry"] = nil
+		package.loaded["pipe-line.consumer"] = nil
+		package.loaded["pipe-line.log"] = nil
 
-		termichatter = require("termichatter")
-		logutil = require("termichatter.log")
+		pipeline = require("pipe-line")
+		logutil = require("pipe-line.log")
 		logutil.set_default_level("debug")
 	end)
 
@@ -48,7 +48,7 @@ describe("termichatter.log", function()
 
 	describe("source composition", function()
 		it("computes full source from thin child chain", function()
-			local root = termichatter({ source = "app" })
+			local root = pipeline({ source = "app" })
 			local auth = root:child("auth")
 			local jwt = auth:child("jwt")
 
@@ -63,8 +63,8 @@ describe("termichatter.log", function()
 
 	describe("line logging behavior", function()
 		it("defaults source and level for string message", function()
-			local app = termichatter({ source = "svc" })
-			app.pipe = termichatter.Pipe({ "ingester" })
+			local app = pipeline({ source = "svc" })
+			app.pipe = pipeline.Pipe({ "ingester" })
 
 			app:log("boot")
 
@@ -78,8 +78,8 @@ describe("termichatter.log", function()
 		end)
 
 		it("supports attrs-only payload", function()
-			local app = termichatter({ source = "svc" })
-			app.pipe = termichatter.Pipe({ "ingester" })
+			local app = pipeline({ source = "svc" })
+			app.pipe = pipeline.Pipe({ "ingester" })
 
 			app:log({ event = "heartbeat" })
 
@@ -93,8 +93,8 @@ describe("termichatter.log", function()
 		end)
 
 		it("lets message argument override attrs.message", function()
-			local app = termichatter({ source = "svc" })
-			app.pipe = termichatter.Pipe({ "ingester" })
+			local app = pipeline({ source = "svc" })
+			app.pipe = pipeline.Pipe({ "ingester" })
 
 			app:log("from-arg", { message = "from-attrs" })
 
@@ -106,8 +106,8 @@ describe("termichatter.log", function()
 		end)
 
 		it("resolves string attrs.level", function()
-			local app = termichatter({ source = "svc" })
-			app.pipe = termichatter.Pipe({ "ingester" })
+			local app = pipeline({ source = "svc" })
+			app.pipe = pipeline.Pipe({ "ingester" })
 
 			app:log("warn-me", { level = "warn" })
 
@@ -119,8 +119,8 @@ describe("termichatter.log", function()
 		end)
 
 		it("applies level helpers", function()
-			local app = termichatter({ source = "svc" })
-			app.pipe = termichatter.Pipe({ "ingester" })
+			local app = pipeline({ source = "svc" })
+			app.pipe = pipeline.Pipe({ "ingester" })
 
 			app:error("err")
 			app:info("inf")
@@ -136,8 +136,8 @@ describe("termichatter.log", function()
 		end)
 
 		it("prefers payload source over line source", function()
-			local app = termichatter({ source = "svc" })
-			app.pipe = termichatter.Pipe({ "ingester", "cloudevent" })
+			local app = pipeline({ source = "svc" })
+			app.pipe = pipeline.Pipe({ "ingester", "cloudevent" })
 
 			app:info("custom source", { source = "explicit:source" })
 
@@ -149,11 +149,11 @@ describe("termichatter.log", function()
 		end)
 
 		it("uses sourcer override when payload source is absent", function()
-			local app = termichatter({ source = "svc" })
+			local app = pipeline({ source = "svc" })
 			app.sourcer = function(line)
 				return "sourcer:" .. tostring(line.source)
 			end
-			app.pipe = termichatter.Pipe({ "ingester" })
+			app.pipe = pipeline.Pipe({ "ingester" })
 
 			app:debug("custom")
 
@@ -165,10 +165,10 @@ describe("termichatter.log", function()
 		end)
 
 		it("works with nested children and default composed source", function()
-			local app = termichatter({ source = "app" })
+			local app = pipeline({ source = "app" })
 			local auth = app:child("auth")
 			local jwt = auth:child("jwt")
-			jwt.pipe = termichatter.Pipe({ "ingester" })
+			jwt.pipe = pipeline.Pipe({ "ingester" })
 
 			jwt:info("validated")
 
@@ -181,21 +181,21 @@ describe("termichatter.log", function()
 		end)
 
 		it("rejects invalid log message type", function()
-			local app = termichatter({ source = "svc" })
+			local app = pipeline({ source = "svc" })
 			assert.has_error(function()
 				app:log(123)
 			end)
 		end)
 
 		it("rejects invalid attrs type", function()
-			local app = termichatter({ source = "svc" })
+			local app = pipeline({ source = "svc" })
 			assert.has_error(function()
 				app:log("msg", "not-table")
 			end)
 		end)
 
 		it("rejects unknown string level", function()
-			local app = termichatter({ source = "svc" })
+			local app = pipeline({ source = "svc" })
 			assert.has_error(function()
 				app:log("msg", { level = "nope" })
 			end)
@@ -204,7 +204,7 @@ describe("termichatter.log", function()
 
 	describe("level filter compatibility", function()
 		it("filters by numeric level using string max_level config", function()
-			local app = termichatter({
+			local app = pipeline({
 				source = "svc",
 				pipe = { "level_filter", "ingester" },
 				max_level = "debug",

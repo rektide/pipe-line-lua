@@ -55,7 +55,7 @@ vim.opt.runtimepath:prepend(coop_root)
 
 local impl = vim.env.TERMICHATTER_IMPL or "default"
 local impl_lua_root = cwd .. "/implementations/" .. impl .. "/lua"
-local impl_init = impl_lua_root .. "/termichatter/init.lua"
+local impl_init = impl_lua_root .. "/pipe-line/init.lua"
 if impl ~= "default" and vim.fn.filereadable(impl_init) == 1 then
 	vim.opt.runtimepath:prepend(cwd .. "/implementations/" .. impl)
 	package.path = impl_lua_root .. "/?.lua;" .. package.path

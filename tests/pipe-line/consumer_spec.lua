@@ -1,19 +1,19 @@
---- Busted tests for termichatter consumer module
+--- Busted tests for pipe-line consumer module
 local coop = require("coop")
 local MpscQueue = require("coop.mpsc-queue").MpscQueue
 
-describe("termichatter.consumer", function()
+describe("pipe-line.consumer", function()
 	local consumer, Line, registry, segment
 
 	before_each(function()
-		package.loaded["termichatter.consumer"] = nil
-		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.registry"] = nil
-		package.loaded["termichatter.segment"] = nil
-		consumer = require("termichatter.consumer")
-		Line = require("termichatter.line")
-		registry = require("termichatter.registry")
-		segment = require("termichatter.segment")
+		package.loaded["pipe-line.consumer"] = nil
+		package.loaded["pipe-line.line"] = nil
+		package.loaded["pipe-line.registry"] = nil
+		package.loaded["pipe-line.segment"] = nil
+		consumer = require("pipe-line.consumer")
+		Line = require("pipe-line.line")
+		registry = require("pipe-line.registry")
+		segment = require("pipe-line.segment")
 	end)
 
 	local function make_line(segment_list, extra)
@@ -55,7 +55,7 @@ describe("termichatter.consumer", function()
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue })
 			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
-			local Run = require("termichatter.run")
+			local Run = require("pipe-line.run")
 
 			local r = Run.new(l, { noStart = true, input = { message = "test" } })
 			r:execute()
@@ -79,7 +79,7 @@ describe("termichatter.consumer", function()
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue, strategy = "clone" })
 			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
-			local Run = require("termichatter.run")
+			local Run = require("pipe-line.run")
 
 			local r = Run.new(l, { noStart = true, input = { message = "test" } })
 			r:execute()
@@ -107,7 +107,7 @@ describe("termichatter.consumer", function()
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue, strategy = "fork" })
 			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
-			local Run = require("termichatter.run")
+			local Run = require("pipe-line.run")
 
 			local r = Run.new(l, { noStart = true, input = { message = "test" } })
 			r:execute()

@@ -1,30 +1,30 @@
---- Busted tests for termichatter pipeline (line/run integration)
+--- Busted tests for pipe-line pipeline (line/run integration)
 local coop = require("coop")
 
-describe("termichatter.pipeline", function()
-	local termichatter
+describe("pipe-line.pipeline", function()
+	local pipeline
 
 	before_each(function()
-		package.loaded["termichatter"] = nil
-		package.loaded["termichatter.init"] = nil
-		package.loaded["termichatter.registry"] = nil
-		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.run"] = nil
-		package.loaded["termichatter.pipe"] = nil
-		package.loaded["termichatter.segment"] = nil
-		package.loaded["termichatter.consumer"] = nil
-		package.loaded["termichatter.log"] = nil
-		package.loaded["termichatter.protocol"] = nil
-		package.loaded["termichatter.resolver"] = nil
-		termichatter = require("termichatter")
+		package.loaded["pipe-line"] = nil
+		package.loaded["pipe-line.init"] = nil
+		package.loaded["pipe-line.registry"] = nil
+		package.loaded["pipe-line.line"] = nil
+		package.loaded["pipe-line.run"] = nil
+		package.loaded["pipe-line.pipe"] = nil
+		package.loaded["pipe-line.segment"] = nil
+		package.loaded["pipe-line.consumer"] = nil
+		package.loaded["pipe-line.log"] = nil
+		package.loaded["pipe-line.protocol"] = nil
+		package.loaded["pipe-line.resolver"] = nil
+		pipeline = require("pipe-line")
 	end)
 
 	describe("queue-based pipeline", function()
 		it("pushes to output queue", function()
-			local app = termichatter()
-			app.pipe = require("termichatter.pipe").new({ "timestamper", "cloudevent" })
+			local app = pipeline()
+			app.pipe = require("pipe-line.pipe").new({ "timestamper", "cloudevent" })
 
-			local Run = require("termichatter.run")
+			local Run = require("pipe-line.run")
 			local run = Run.new(app, { noStart = true, input = { message = "test" } })
 			run:execute()
 
@@ -39,8 +39,8 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("processes multiple messages in order", function()
-			local app = termichatter()
-			app.pipe = require("termichatter.pipe").new({ "timestamper" })
+			local app = pipeline()
+			app.pipe = require("pipe-line.pipe").new({ "timestamper" })
 
 			app:log({ message = "first" })
 			app:log({ message = "second" })
@@ -59,10 +59,10 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("supports queue at pipeline step", function()
-			local app = termichatter()
+			local app = pipeline()
 			local afterStep = {}
 
-			app.pipe = require("termichatter.pipe").new({ "timestamper", "mpsc_handoff", "queuedStep", "capture" })
+			app.pipe = require("pipe-line.pipe").new({ "timestamper", "mpsc_handoff", "queuedStep", "capture" })
 
 			app.queuedStep = function(run)
 				table.insert(afterStep, "queued")
@@ -82,7 +82,7 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("resolves named mpsc_handoff with no manual setup", function()
-			local app = termichatter()
+			local app = pipeline()
 			local captured = nil
 
 			app:addSegment("capture", function(run)
@@ -90,7 +90,7 @@ describe("termichatter.pipeline", function()
 				return run.input
 			end)
 
-			app.pipe = require("termichatter.pipe").new({ "mpsc_handoff", "capture" })
+			app.pipe = require("pipe-line.pipe").new({ "mpsc_handoff", "capture" })
 			app:log({ message = "hello" })
 
 			local received = coop.spawn(function()
@@ -102,8 +102,8 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("materializes distinct queues for repeated named mpsc_handoff entries", function()
-			local app = termichatter()
-			app.pipe = require("termichatter.pipe").new({ "mpsc_handoff", "mpsc_handoff" })
+			local app = pipeline()
+			app.pipe = require("pipe-line.pipe").new({ "mpsc_handoff", "mpsc_handoff" })
 			app:log({ message = "materialize" })
 
 			assert.are.equal("mpsc_handoff", app.pipe[1].type)
@@ -114,7 +114,7 @@ describe("termichatter.pipeline", function()
 
 	describe("recursive context", function()
 		it("child line inherits from parent", function()
-			local parent = termichatter({
+			local parent = pipeline({
 				source = "parent",
 				customSetting = "inherited",
 			})
@@ -127,7 +127,7 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("child can override parent settings", function()
-			local parent = termichatter({
+			local parent = pipeline({
 				filter = "parent.*",
 			})
 
@@ -139,7 +139,7 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("fork has independent pipeline", function()
-			local parent = termichatter()
+			local parent = pipeline()
 			local child = parent:fork("worker")
 
 			child:addSegment("childOnly", function(run)
@@ -152,7 +152,7 @@ describe("termichatter.pipeline", function()
 		end)
 
 		it("log methods inherit module context", function()
-			local app = termichatter({ source = "app:main" })
+			local app = pipeline({ source = "app:main" })
 			local captured = nil
 
 			app:addSegment("capture", function(run)
@@ -168,8 +168,8 @@ describe("termichatter.pipeline", function()
 
 	describe("multiple producers", function()
 		it("handles concurrent logging", function()
-			local app = termichatter()
-			app.pipe = require("termichatter.pipe").new({ "timestamper" })
+			local app = pipeline()
+			app.pipe = require("pipe-line.pipe").new({ "timestamper" })
 
 			for i = 1, 5 do
 				app:log({ producer = i })

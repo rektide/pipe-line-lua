@@ -1,13 +1,13 @@
-describe("termichatter.stopped_live", function()
+describe("pipe-line.stopped_live", function()
 	local Line, registry, Future
 
 	before_each(function()
-		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.registry"] = nil
-		package.loaded["termichatter.segment"] = nil
+		package.loaded["pipe-line.line"] = nil
+		package.loaded["pipe-line.registry"] = nil
+		package.loaded["pipe-line.segment"] = nil
 		package.loaded["coop.future"] = nil
-		Line = require("termichatter.line")
-		registry = require("termichatter.registry")
+		Line = require("pipe-line.line")
+		registry = require("pipe-line.registry")
 		Future = require("coop.future").Future
 	end)
 

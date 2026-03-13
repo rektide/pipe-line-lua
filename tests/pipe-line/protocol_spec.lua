@@ -1,15 +1,15 @@
 --- Busted tests for protocol helpers
 
-describe("termichatter.protocol", function()
+describe("pipe-line.protocol", function()
 	local protocol
 
 	before_each(function()
-		package.loaded["termichatter.protocol"] = nil
-		package.loaded["termichatter"] = nil
-		package.loaded["termichatter.init"] = nil
-		package.loaded["termichatter.line"] = nil
-		package.loaded["termichatter.segment"] = nil
-		protocol = require("termichatter.protocol")
+		package.loaded["pipe-line.protocol"] = nil
+		package.loaded["pipe-line"] = nil
+		package.loaded["pipe-line.init"] = nil
+		package.loaded["pipe-line.line"] = nil
+		package.loaded["pipe-line.segment"] = nil
+		protocol = require("pipe-line.protocol")
 	end)
 
 	it("applies completion state from protocol runs", function()
@@ -59,8 +59,8 @@ describe("termichatter.protocol", function()
 	end)
 
 	it("supports alternate completion handlers without resolving segment completion", function()
-		local termichatter = require("termichatter")
-		local query_segment = termichatter.segment.define({
+		local pipeline = require("pipe-line")
+		local query_segment = pipeline.segment.define({
 			type = "query_only_completion",
 			process_protocol = true,
 			ensure_prepared = function(self, context)
@@ -76,7 +76,7 @@ describe("termichatter.protocol", function()
 			end,
 		})
 
-		local line = termichatter({ pipe = { query_segment } })
+		local line = pipeline({ pipe = { query_segment } })
 
 		line:run(protocol.completion.completion_run("hello", "worker:a"))
 		line:run(protocol.completion.completion_run("done", "worker:a"))
