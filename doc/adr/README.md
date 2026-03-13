@@ -7,7 +7,7 @@ Architecture decision records for async segment decomposition and transport poli
 
 Related discovery notes:
 
-- [`/doc/discovery/mpsc-decomposition.md`](/doc/discovery/mpsc-decomposition.md)
+- [`/doc/archive/mpsc-decomposition.md`](/doc/archive/mpsc-decomposition.md)
 - [`/doc/discovery/adr-async-boundary-segments.md`](/doc/discovery/adr-async-boundary-segments.md)
 
 Discovery notes are exploratory and may include superseded options. ADRs and top-level segment docs are the normative architecture source.

@@ -2,30 +2,28 @@
 
 > Structured data-flow pipeline for Lua, with async queue handoff via [coop.nvim](https://github.com/gregorias/coop.nvim)
 
-## Core Concept
+pipe-line is a composable pipeline library. Messages flow through an ordered sequence of **segments** — each transforming, filtering, or enriching the data. The primary use case is structured logging within Neovim, but the core model is general-purpose: any ordered processing pipeline with optional async boundaries and dependency injection.
+
+## Core Runtime Model
 
 ```
 Registry (segment library)
     ↓ resolve by name
   Line (pipeline config + output)
     ↓ creates
-  Run (cursor walking the pipe, executing segment)
+  Run (cursor walking the pipe, executing segments)
     ↓ pushes to
   Output (mpsc queue → outputter)
 ```
 
-Messages flow through a **pipe** — an ordered sequence of **segment**. Each segment transforms, filters, or enriches the message. Segment are resolved by name from a **registry**. A **run** walks the pipe for each message, and a **lattice resolver** can dynamically splice dependency-satisfying segment into the pipe at runtime.
-
-## Glossary
-
 | Term | Description |
 |------|-------------|
 | **Line** | Pipeline definition: holds a pipe, registry, output queue, config |
-| **Pipe** | Ordered array of segment, first-class object with `rev`/`splice`/`clone` |
-| **Segment** | Processing component in a pipe (`handler(run)` plus optional lifecycle and metadata) |
-| **Run** | Lightweight cursor/context that walks a pipe, executing each segment |
-| **Registry** | Repository of known segment type, indexed by name |
-| **Fact** | Named capability tracked on line and/or run for dependency resolution |
+| **Pipe** | Ordered array of segments — first-class object with revision tracking and splice journaling |
+| **Segment** | Processing component: `handler(run)` plus optional lifecycle hooks and metadata |
+| **Run** | Lightweight cursor that walks a pipe, executing each segment |
+| **Registry** | Repository of known segment types, indexed by name, with `emits_index` for dependency resolution |
+| **Fact** | Named capability tracked on line and/or run for lattice resolver dependency injection |
 
 ## Installation
 
@@ -59,20 +57,127 @@ startup:debug("Config loaded", { config = { debug = true } })
 -- Messages arrive in app.output (an mpsc queue)
 ```
 
-## More Docs
+Log methods: `error`, `warn`, `info`, `debug`, `trace`, and generic `log`. Each normalizes a payload through the line's `sourcer` and level system, then sends it through the pipe via `line:run()`.
 
-- Lifecycle orchestration: [`/doc/lifecycle.md`](/doc/lifecycle.md)
-- Segment instancing and selectors: [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
-- Selector utilities and live stop waiting: [`/doc/selecting.md`](/doc/selecting.md)
-- Segment authoring and hook contracts: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Async queue boundaries: [`/doc/async-handoff.md`](/doc/async-handoff.md)
-- Completion control protocol: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
+Levels are numeric multiples of 10 (error=10, warn=20, info=30, log=40, debug=50, trace=60). Control the default with `pipeline.set_default_level("info")`.
 
-## Architecture
+## Segment Contract
 
-### Line
+The segment contract is centered on one run-facing verb ([`/doc/segment-authoring.md`](/doc/segment-authoring.md)):
 
-A Line is the pipeline definition. Create one by calling the module:
+```lua
+handler(run)
+```
+
+Lifecycle hooks:
+
+- `init(context)` — per-instance setup when segment is materialized
+- `ensure_prepared(context)` — readiness/start hook (idempotent)
+- `ensure_stopped(context)` — stop hook (idempotent)
+
+### Minimal Segment
+
+```lua
+registry:register("tagger", function(run)
+    run.input.tagged = true
+    return run.input
+end)
+```
+
+### Table Segment with Metadata
+
+```lua
+registry:register("validator", {
+    type = "validator",
+    wants = { "time" },        -- facts this segment requires
+    emits = { "validated" },   -- facts this segment produces
+    handler = function(run)
+        run.input.validated = true
+        return run.input
+    end,
+})
+```
+
+### Handler Return Semantics
+
+- **table** → replaces `run.input` for the next segment
+- **`false`** → stops this run path (message filtered)
+- **`nil`** → keeps current `run.input` unchanged
+
+Boundary segments typically return `false` after handing off a continuation, then call `continuation:next(...)` later.
+
+### Protocol-Aware Segments
+
+`segment.define(spec)` wraps handler behavior with protocol pass-through defaults, keeping completion protocol handling consistent across custom segments ([`/lua/pipe-line/segment/define.lua`](/lua/pipe-line/segment/define.lua)).
+
+## Async Model
+
+Async handoff is explicit: insert an `mpsc_handoff` segment where you want a queue boundary ([`/doc/async-handoff.md`](/doc/async-handoff.md)).
+
+```lua
+local app = pipeline({ source = "myapp" })
+
+app.pipe = pipeline.Pipe({
+    "timestamper",
+    "mpsc_handoff",   -- explicit async boundary (independent queue)
+    "cloudevent",
+    "module_filter",
+})
+
+app:info("async message")
+
+-- Shutdown
+app:close():await(500, 10)
+```
+
+Handoff queue consumers start automatically via segment lifecycle (`ensure_prepared`). Disable with `autoStartConsumers = false` and call `line:ensure_prepared()` manually later.
+
+### Custom Handoff
+
+```lua
+local segment = require("pipe-line.segment")
+local handoff = segment.mpsc_handoff({ strategy = "fork" })
+```
+
+Strategy controls how the continuation run is created: `self` (default, zero-alloc), `clone` (lightweight copy), or `fork` (fully independent).
+
+### Run-Owned Continuation
+
+Continuation tracking is run-centric. `mpsc_handoff` carries continuation runs across the queue boundary; it transports them, it doesn't redefine run semantics. If per-run continuation bookkeeping is needed, use `run.continuation` ([`/doc/segment-instancing.md`](/doc/segment-instancing.md)).
+
+## Stop Model
+
+Line lifecycle orchestration follows a prepare → stop sequence ([`/doc/lifecycle.md`](/doc/lifecycle.md)):
+
+```lua
+-- High-level shutdown:
+app:close()  -- calls ensure_prepared(), then ensure_stopped()
+
+-- Or step by step:
+app:ensure_prepared()
+app:ensure_stopped()
+```
+
+Each line owns a `stopped` future. `ensure_stopped()` collects segment stop handles, calls `segment.ensure_stopped(context)` on each, awaits all, and resolves `line.stopped`.
+
+For task transport segments, stop strategy is selected by `stop_type` ([`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md)):
+
+- `stop_drain` (default) — drains pending work before final resolution
+- `stop_immediate` — prioritizes prompt stop
+
+### Waiting by Segment Type
+
+Use selector-based live stop handles for targeted waits ([`/doc/selecting.md`](/doc/selecting.md)):
+
+```lua
+local completion_stopped = app:stopped_live("completion")
+app:close()
+completion_stopped:await(1000, 10)
+```
+
+## Line
+
+Create a line by calling the module:
 
 ```lua
 local app = pipeline({ source = "myapp" })
@@ -83,32 +188,50 @@ Configuration:
 | Field | Description |
 |-------|-------------|
 | `source` | Local source segment for this line |
-| `pipe` | Array of segment name (default: timestamper, ingester, cloudevent, module_filter, completion) |
+| `pipe` | Array of segment names (default: `timestamper`, `ingester`, `cloudevent`, `module_filter`, `completion`) |
 | `registry` | Segment registry (default: global registry) |
 | `output` | Output mpsc queue (default: new queue) |
 | `filter` | Pattern or function for module filtering |
 | `parent` | Parent Line for inheritance |
-| `auto_id` | Auto-assign runtime segment ids (default: true) |
-| `auto_fork` | Use segment `fork()` when available (default: true) |
-| `auto_instance` | Create thin runtime segment instances (default: true) |
+| `auto_id` | Auto-assign runtime segment ids (default: `true`) |
+| `auto_fork` | Use segment `fork()` when available (default: `true`) |
+| `auto_instance` | Create thin runtime segment instances (default: `true`) |
+| `auto_completion_done_on_close` | Auto-emit completion `done` on close (default: `true`) |
+| `autoStartConsumers` | Auto-start handoff queue consumers (default: `true`) |
 
-Child lines are thin by default and inherit from parent via metatable:
+### Child Lines and Forks
+
+Child lines are thin — they inherit from the parent via metatable and share pipe/output/fact:
 
 ```lua
 local auth = app:child("auth")
 local jwt = auth:child("jwt")
 
-print(auth.source)         -- "auth" (local segment)
-print(jwt:full_source())   -- "myapp:auth:jwt"
--- child shares pipe/output by default
-
-local worker = app:fork("worker")
--- fork owns independent pipe/output/fact
+jwt:full_source()  -- "myapp:auth:jwt"
 ```
 
-### Pipe
+Forks are independent — they own their own pipe, output, and fact:
 
-The ordered sequence of segment. A first-class object with revision tracking and splice journaling.
+```lua
+local worker = app:fork("worker")
+```
+
+### Adding Segments at Runtime
+
+```lua
+-- Insert a named segment with a handler
+app:addSegment("my_enricher", function(run)
+    run.input.enriched = true
+    return run.input
+end)
+
+-- Insert an async boundary at position 2
+app:addHandoff(2, { strategy = "clone" })
+```
+
+## Pipe
+
+The ordered sequence of segments. A first-class object with revision tracking and splice journaling:
 
 ```lua
 local Pipe = require("pipe-line.pipe")
@@ -119,93 +242,42 @@ p:clone()                       -- independent copy
 p.rev                           -- revision counter
 ```
 
-### Segment
+Runs track pipe revision and sync their position after splices via `run:sync()`.
 
-A processing component. Can be a plain function or a table with metadata:
+## Run
 
-```lua
--- Simple function segment
-registry:register("tagger", function(run)
-    run.input.tagged = true
-    return run.input
-end)
-
--- Segment with dependency metadata (for lattice resolver)
-registry:register("validator", {
-    wants = { "time" },        -- fact this segment requires
-    emits = { "validated" },   -- fact this segment produces
-    handler = function(run)
-        run.input.validated = true
-        return run.input
-    end,
-})
-```
-
-Segment receive the **run** as their sole argument. Access the element via `run.input`, line config via `run.source`, `run.filter`, etc.
-
-`handler(run)` is the processing entrypoint for a run path. Sync segments usually return values directly; boundary segments may hand off and resume later via continuation run objects.
-
-Return values (current shorthand):
-- **table** — becomes the next segment's input
-- **`false`** — stop the pipeline (message filtered)
-- **`nil`** — keep current input unchanged
-
-When run-level continuation tracking is needed, use `run.continuation` keyed by segment identity (`segment.id` preferred).
-
-### Run
-
-A lightweight cursor that walks the pipe. Supports cloning for fan-out and ownership for independence.
+A lightweight cursor that walks the pipe. Access the element via `run.input`, line config via the run's metatable chain to the line.
 
 ```lua
 local Run = require("pipe-line.run")
-
--- Normally created via line:run(), but can be manual:
 local r = Run(line, { input = { message = "hello" }, noStart = true })
 r:execute()    -- walk the pipe from current pos
 r:next()       -- advance and continue
-r:emit(el)     -- clone + next convenience for fan-out
-r:emit(el, "fork") -- optional strategy: self|clone|fork
-r:clone(el)    -- lightweight copy for fan-out
-r:fork(el)     -- fully independent copy
+r:emit(el)     -- clone + next for fan-out
+r:clone(el)    -- lightweight copy sharing everything with parent
+r:fork(el)     -- fully independent copy (own pipe + fact)
 r:own("pipe")  -- take ownership, breaking line read-through
-r:own("fact")  -- snapshot fact for independence
 r:set_fact("time")  -- lazily create per-run fact
-r:sync()       -- sync pos with line's pipe after splice
 ```
 
-Continuation flow remains run-centric: async boundaries eventually resume with `run:next(...)` on the continuation run they carried.
-
-#### Fan-Out
-
-A segment can emit multiple element by cloning the run (default strategy), or choose `self`/`fork` when needed:
-
-```lua
-registry:register("splitter", function(run)
-    for _, part in ipairs(run.input.part) do
-        run:emit(part)
-    end
-    -- return nil: we handled forwarding
-end)
-```
-
-#### Independence Spectrum
+### Independence Spectrum
 
 | Operation | Cost | Use case |
 |-----------|------|----------|
 | `run:next()` | 0 alloc | Normal single-element flow |
-| `run:emit(el)` | 1 small table | Fan-out convenience |
+| `run:emit(el)` | 1 small table | Fan-out convenience (default: clone strategy) |
 | `run:clone(el)` | 1 small table | Fan-out, shares everything |
-| `run:clone(el)` + `set_fact()` | 2 small table | Per-element fact |
+| `run:clone(el)` + `set_fact()` | 2 small tables | Per-element fact |
 | `run:fork(el)` | Everything cloned | Full detach from line |
 
-### Registry
+## Registry
 
-Repository of known segment. Supports inheritance via `derive()`:
+Repository of known segments. Supports inheritance via `derive()`:
 
 ```lua
 local Registry = require("pipe-line.registry")
 
--- Global registry (pre-populated with built-in segment)
+-- Global registry (pre-populated with built-in segments)
 local reg = pipeline.registry
 reg:register("my_segment", handler)
 
@@ -214,11 +286,11 @@ local child_reg = reg:derive()
 child_reg:register("local_segment", handler)
 ```
 
-The registry maintains an `emits_index` — a map from fact name to segment that emit it — updated incrementally on each `register()` call.
+The registry maintains an `emits_index` — a map from fact name to segments that emit it — updated incrementally on each `register()` call. Use `registry:get_emits_index()` for the effective index across the inheritance chain.
 
-### Lattice Resolver
+## Lattice Resolver
 
-A segment that dynamically splices dependency-satisfying segment into the pipe at runtime. It inspects downstream `wants`, queries the registry's `emits_index`, computes a topological sort (Kahn's algorithm), and splices the result.
+A segment that dynamically splices dependency-satisfying segments into the pipe at runtime. It inspects downstream `wants`, queries the registry's `emits_index`, computes a topological sort (Kahn's algorithm), and splices the result.
 
 ```lua
 local app = pipeline({
@@ -233,12 +305,12 @@ local app = pipeline({
 -- [timestamper, enricher, validator, final_output]
 ```
 
-Options (set on line or run):
+Options (read from run, inheritable from line):
 
 | Option | Description |
 |--------|-------------|
-| `resolver_keep` | Keep the resolver in the pipe after resolving (default: false) |
-| `resolver_lookahead` | Max downstream segment to scan (default: all) |
+| `resolver_keep` | Keep the resolver in the pipe after resolving (default: `false`) |
+| `resolver_lookahead` | Max downstream segments to scan (default: all) |
 | `resolver_emits_index` | Pre-built emits index to use |
 
 Static resolution without running:
@@ -248,49 +320,40 @@ local resolver = require("pipe-line.resolver")
 resolver.resolve_line(my_line)  -- modifies line.pipe directly
 ```
 
-## Async Execution
+## Segment Instancing
 
-Async handoff is explicit: insert a `mpsc_handoff` segment into the pipe.
+Registry entries are shared prototypes. The line runtime creates per-line instances automatically, controlled by `auto_fork`, `auto_instance`, and `auto_id` ([`/doc/segment-instancing.md`](/doc/segment-instancing.md)).
+
+Each runtime segment table exposes:
+
+- `type` — selector identity (matched by `line:select_segments("type_name")`)
+- `id` — unique runtime identity per line slot
+
+## Completion Protocol
+
+Implements the [mpsc-completion](https://github.com/rektide/mpsc-completion) protocol for coordinating async pipeline shutdown ([`/doc/completion-protocol.md`](/doc/completion-protocol.md)):
 
 ```lua
-local app = pipeline({ source = "myapp" })
-local segment = require("pipe-line.segment")
+local protocol = require("pipe-line.protocol")
 
--- Optional custom boundary with strategy/queue control
-local custom_handoff = segment.mpsc_handoff({ strategy = "fork" })
+-- Build protocol runs (control is on run fields, not input)
+local hello = protocol.completion.completion_run("hello", "worker:a")
+local done = protocol.completion.completion_run("done", "worker:a")
 
-app.pipe = require("pipe-line.pipe")({
-    "timestamper",
-    "mpsc_handoff", -- default boundary from registry (independent queue)
-    -- custom_handoff, -- use this instead if you want custom strategy/queue
-    "cloudevent",
-    "module_filter",
-})
-
--- Log (handoff consumer starts automatically)
-app:info("async message")
-
--- Optional cleanup when shutting down
-app:close():await(500, 10)
-
--- Advanced control: disable auto-start and start later
-local delayed = pipeline({ autoStartConsumers = false })
-delayed.pipe = require("pipe-line.pipe")({ "mpsc_handoff", "cloudevent" })
-delayed:info("queued, not yet consumed")
-delayed:ensure_prepared() -- begin draining handoff queues
+app:run(hello)
+app:run(done)
 ```
 
-For deeper async boundary details, see [`/doc/async-handoff.md`](/doc/async-handoff.md).
+The built-in `completion` segment tracks hello/done accounting and resolves its `stopped` future when settled (done ≥ hello).
 
 ## Output
 
-Message that complete the pipe are pushed to the line's `output` queue:
+Messages that complete the pipe are pushed to the line's `output` queue:
 
 ```lua
 local coop = require("coop")
 local app = pipeline({ source = "myapp" })
 
--- Consume output
 coop.spawn(function()
     while true do
         local msg = app.output:pop()
@@ -305,22 +368,20 @@ end)
 |------|-------------|
 | `outputter.buffer(config)` | Write to nvim buffer |
 | `outputter.file(config)` | Append to file |
-| `outputter.jsonl(config)` | Write JSON Line |
-| `outputter.fanout(config)` | Forward to multiple outputter |
+| `outputter.jsonl(config)` | Write JSON Lines |
+| `outputter.fanout(config)` | Forward to multiple outputters |
 
 ```lua
 local outputter = require("pipe-line.outputter")
 
--- Buffer outputter with queue-driven consumer
 local bufOut = outputter.buffer({
     name = "MyLog",
     queue = app.output,
 })
 bufOut:start_async()
 
--- Fanout to multiple destination
 local fan = outputter.fanout({
-    outputter = { bufOut, fileOut },
+    outputters = { bufOut, fileOut },
     queue = app.output,
 })
 ```
@@ -332,7 +393,6 @@ Schedule periodic execution:
 ```lua
 local driver = require("pipe-line.driver")
 
--- Fixed interval
 local d = driver.interval(100, function()
     processMessage()
 end)
@@ -347,60 +407,31 @@ local d = driver.rescheduler({
 }, callback)
 ```
 
-## Completion Protocol
-
-Implements the [mpsc-completion](https://github.com/rektide/mpsc-completion) protocol for coordinating async pipeline shutdown:
-
-```lua
-local protocol = require("pipe-line.protocol")
-
--- Build protocol runs (control is on run fields, not input)
-local hello = protocol.completion.completion_run("hello", "worker:a")
-local done = protocol.completion.completion_run("done", "worker:a")
-
--- Send lifecycle control through the pipeline
-app:run(hello)
-app:run(done)
-
--- Wait for completion segment stop state by selector
-local completion_stopped = app:stopped_live("completion")
-app:close()
-local settled = completion_stopped:await(500, 10)
-
--- Or run protocol query logic yourself in custom segments
-local state = {}
-if protocol.completion.apply(state, protocol.completion.completion_run("hello", "worker:a")) and state.settled then
-    -- your custom completion behavior
-end
-```
-
-For full completion semantics and state application, see [`/doc/completion-protocol.md`](/doc/completion-protocol.md).
-
-## Built-in Segment
+## Built-in Segments
 
 | Segment | Wants | Emits | Description |
 |---------|-------|-------|-------------|
 | `timestamper` | — | `time` | Add `time` field with `vim.uv.hrtime()` |
 | `cloudevent` | — | `cloudevent` | Add `id`, `source`, `type`, `specversion` |
 | `module_filter` | — | — | Filter by source pattern (string or function) |
-| `level_filter` | — | — | Filter by log level |
-| `ingester` | — | — | Apply custom decoration function |
-| `completion` | — | — | Track completion protocol and resolve segment `stopped` when settled |
+| `level_filter` | — | — | Filter by log level (`max_level` on line or run) |
+| `ingester` | — | — | Apply custom decoration function (`ingest` on line or run) |
+| `completion` | — | — | Track completion protocol; resolve `stopped` when settled |
 | `lattice_resolver` | — | — | Dependency injection via pipeline self-rewriting |
 
 Async boundary helper:
 
 | Helper | Description |
 |--------|-------------|
-| `segment.mpsc_handoff(config)` | Create explicit queue handoff segment (`config.queue` optional, segment strategy: `self`/`clone`/`fork`) |
+| `segment.mpsc_handoff(config)` | Create explicit queue handoff segment (strategy: `self`/`clone`/`fork`) |
 
-## Structured Message
+## Structured Messages
 
-Message are Lua table with conventional field:
+Messages are Lua tables with conventional fields:
 
 | Field | Description |
 |-------|-------------|
-| `time` | High-resolution timestamp (hrtime nanosecond) |
+| `time` | High-resolution timestamp (hrtime nanoseconds) |
 | `id` | UUID v4 identifier |
 | `source` | Origin URI (e.g. `"myapp:auth:jwt"`) |
 | `type` | Event type (`"pipe-line.log"`) |
@@ -408,10 +439,27 @@ Message are Lua table with conventional field:
 | `level` | Numeric log level (multiples of 10) |
 | `message` | Human-readable message string |
 
+## Further Reading
+
+Core documentation:
+
+- Segment authoring and hook contracts: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
+- Segment instancing and selectors: [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
+- Selector utilities and live stop waiting: [`/doc/selecting.md`](/doc/selecting.md)
+- Line lifecycle orchestration: [`/doc/lifecycle.md`](/doc/lifecycle.md)
+- Async queue boundaries: [`/doc/async-handoff.md`](/doc/async-handoff.md)
+- Completion control protocol: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
+
+Architecture decisions:
+
+- Transport policy interface: [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md)
+- Stop drain and cancel signal: [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md)
+- ADR index: [`/doc/adr/README.md`](/doc/adr/README.md)
+
 ## Testing
 
 ```bash
-# Run all test
+# Run all tests
 nvim -l tests/busted.lua
 
 # Run specific test file
@@ -419,8 +467,6 @@ nvim -l tests/busted.lua tests/pipe-line/run_spec.lua
 ```
 
 ## Benchmarking
-
-Benchmark each test suite through Rust Criterion:
 
 ```bash
 # Full benchmark pass with history tracking
@@ -433,17 +479,19 @@ cargo run --bin bench-history
 
 | Module | Export | Description |
 |--------|--------|-------------|
-| `pipe-line` | callable → Line | Entry point, registers built-in segment |
+| `pipe-line` | callable → Line | Entry point, registers built-in segments |
 | `pipe-line.line` | Line | Pipeline class, callable constructor |
 | `pipe-line.pipe` | Pipe | Segment sequence, callable constructor |
 | `pipe-line.run` | Run | Execution cursor, callable constructor |
 | `pipe-line.registry` | Registry | Segment repository, callable constructor |
-| `pipe-line.segment` | table | Built-in segment definition |
+| `pipe-line.segment` | table | Built-in segment definitions |
+| `pipe-line.segment.define` | table | Segment definition wrapper with protocol pass-through |
 | `pipe-line.resolver` | table | Lattice resolver + Kahn's sort |
-| `pipe-line.consumer` | table | Async mpsc consumer |
-| `pipe-line.outputter` | table | Output destination (buffer, file, jsonl, fanout) |
+| `pipe-line.consumer` | table | Async mpsc queue consumer for handoff boundaries |
+| `pipe-line.outputter` | table | Output destinations (buffer, file, jsonl, fanout) |
 | `pipe-line.driver` | table | Periodic scheduling (interval, rescheduler) |
 | `pipe-line.protocol` | table | Completion/shutdown protocol |
+| `pipe-line.log` | table | Level constants, normalization, source composition |
 | `pipe-line.inherit` | table | Metatable inheritance utility |
 
 ## License

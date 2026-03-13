@@ -12,7 +12,7 @@ References:
 
 Completion protocol uses run fields, not `run.input` payload fields:
 
-- `pipe-line_protocol = true`
+- `pipe_line_protocol = true`
 - `mpsc_completion = "hello" | "done" | "shutdown"`
 - `mpsc_completion_name` optional
 

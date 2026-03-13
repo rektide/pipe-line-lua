@@ -80,7 +80,7 @@ Relevant implementation files:
 
 Related discovery docs:
 
-- [`/doc/discovery/mpsc-decomposition.md`](/doc/discovery/mpsc-decomposition.md)
+- [`/doc/archive/mpsc-decomposition.md`](/doc/archive/mpsc-decomposition.md)
 - [`/doc/discovery/adr-async-boundary-segments.md`](/doc/discovery/adr-async-boundary-segments.md)
 
 ## Implementation direction

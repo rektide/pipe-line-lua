@@ -12,8 +12,9 @@ References:
 Insert `mpsc_handoff` in the pipe where you want a queue boundary.
 
 ```lua
-local app = pipe-line({ source = "myapp" })
-app.pipe = pipe-line.Pipe({
+local pipeline = require("pipe-line")
+local app = pipeline({ source = "myapp" })
+app.pipe = pipeline.Pipe({
   "timestamper",
   "mpsc_handoff",
   "cloudevent",
@@ -30,7 +31,7 @@ local handoff = segment.mpsc_handoff({
   strategy = "fork", -- self | clone | fork
 })
 
-app.pipe = pipe-line.Pipe({ handoff, "cloudevent" })
+app.pipe = pipeline.Pipe({ handoff, "cloudevent" })
 ```
 
 ## Lifecycle
