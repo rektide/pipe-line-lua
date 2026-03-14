@@ -92,6 +92,26 @@ Segment identity assignment:
 | `seg.type` | ensured for runtime segment tables |
 | `seg.id` | assigned when `auto_id ~= false` |
 
+```mermaid
+flowchart LR
+    entry[pipe[pos] entry] --> kind{entry type}
+    kind -->|string| resolve[line:resolve_segment(name)]
+    kind -->|table| tablepath[table prototype path]
+    kind -->|factory| factory[factory.create()]
+
+    resolve --> resolved{resolved type}
+    resolved -->|table| inst[instantiate per auto_fork/auto_instance]
+    resolved -->|function| fnseg[callable segment]
+    resolved -->|nil| passthrough[leave as unresolved entry]
+
+    tablepath --> inst
+    factory --> inst
+    inst --> init[call seg:init(context) once]
+    init --> identity[ensure seg.type and seg.id]
+    fnseg --> execute[handler(run)]
+    identity --> execute
+```
+
 ## Selection APIs
 
 ### `line:select_segments(selector?, opts?)`
@@ -121,6 +141,23 @@ Predicate context fields:
 
 - `ctx.line`
 - `ctx.pos`
+
+```mermaid
+flowchart LR
+    sel[line:select_segments(selector)] --> mode{selector form}
+    mode -->|nil| all[include all table segments]
+    mode -->|string| bytype[include seg.type == selector]
+    mode -->|function| bypred[include when predicate(seg, ctx) == true]
+
+    bypred --> ctx[ctx.line + ctx.pos]
+    all --> out[selected segments]
+    bytype --> out
+    bypred --> out
+
+    stoplive[line:stopped_live(selector)] --> observe[track seg.stopped awaitables]
+    observe --> newly[newly discovered matches]
+    newly --> settled[resolve when line stopped + pending == 0]
+```
 
 ### `line:stopped_live(selector?)`
 

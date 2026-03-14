@@ -64,6 +64,24 @@ On register:
 | 4 | store new handler in `segment[name]` |
 | 5 | add new emits entries for each emitted fact |
 
+```mermaid
+flowchart LR
+    reg[registry:register(name, handler)] --> rev[rev = rev + 1]
+    rev --> inval[invalidate effective emits cache]
+    inval --> remove[remove old emits entries for name]
+    remove --> store[store handler in segment[name]]
+    store --> addidx{handler.emits present?}
+    addidx -->|yes| append[append emits index entries]
+    addidx -->|no| done[done]
+    append --> done
+
+    done --> getidx[get_emits_index()]
+    getidx --> cachecheck{cache valid?}
+    cachecheck -->|yes| reuse[reuse cached merged index]
+    cachecheck -->|no| rebuild[merge parent + local emits index]
+    rebuild --> refresh[refresh cache snapshot]
+```
+
 Each emits entry stores:
 
 | Entry field | Meaning |

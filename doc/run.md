@@ -146,6 +146,25 @@ Strategies:
 - `run:clone(new_input)` creates a lightweight child run with parent read-through; child owns `input` and `pos`.
 - `run:fork(new_input?)` is clone plus ownership break for key fields (`own("pipe")`, `own("fact")`).
 
+```mermaid
+flowchart LR
+    base[base run]
+    base --> clone[run:clone(new_input)]
+    base --> fork[run:fork(new_input)]
+    base --> ownpipe[run:own("pipe")]
+    base --> ownfact[run:own("fact")]
+
+    clone --> cshared[shares parent read-through]
+    clone --> cinput[owns input/pos]
+
+    fork --> fpipe[owns cloned pipe]
+    fork --> ffact[owns snapshot fact]
+    fork --> fshared[still reads other fields via chain]
+
+    ownpipe --> pdetach[detached pipe mutations]
+    ownfact --> fdetach[detached fact mutations]
+```
+
 ## Pipe Synchronization (`run:sync()`)
 
 Runs track `_rev` and reconcile position against pipe splice journal.

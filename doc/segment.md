@@ -262,6 +262,17 @@ Completion accounting state fields:
 | `name` | last seen completion signal name/source |
 | `stopped` | completion segment stop future resolved on settlement |
 
+```mermaid
+stateDiagram-v2
+    [*] --> Uninitialized
+    Uninitialized --> Tracking: ensure_completion_state
+    Tracking --> Tracking: apply(hello)
+    Tracking --> Tracking: apply(done/shutdown)
+    Tracking --> Settled: done >= hello
+    Settled --> Settled: additional done/shutdown
+    Settled --> [*]: stopped:complete(state)
+```
+
 Completion segment behavior:
 
 | Hook / path | Completion behavior |
