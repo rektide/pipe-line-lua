@@ -26,8 +26,6 @@ Working notes for in-progress design and audit work. May inform future normative
 
 | Document | Created | Description |
 |----------|---------|-------------|
-| [`discovery/doc-fixes.md`](/doc/discovery/doc-fixes.md) | 2026-03-13 | Audit of all doc files against current code; tracked discrepancies and recommendations |
-| [`discovery/readme-pipe-line.md`](/doc/discovery/readme-pipe-line.md) | 2026-03-13 | Guide used for README rewrite: source material, content goals, contract language |
 | [`discovery/adr-async-boundary-segments.md`](/doc/discovery/adr-async-boundary-segments.md) | 2026-02-25 | Exploratory notes on async boundary segment decomposition |
 
 ## Archive — Superseded
@@ -49,7 +47,6 @@ Historical documents. These reflect earlier designs and are preserved for ration
 | [`archive/status2.md`](/doc/archive/status2.md) | 2026-02-26 | Historical status snapshot |
 | [`archive/self-ify.md`](/doc/archive/self-ify.md) | 2026-02-12 | Self-ification refactor notes |
 | [`archive/re-async.md`](/doc/archive/re-async.md) | 2026-02-26 | Async model re-examination notes |
-| [`archive/rename.md`](/doc/archive/rename.md) | 2026-03-13 | Naming and rename considerations |
 | [`archive/pipeflow/`](/doc/archive/pipeflow/) | 2026-02-14 | Earlier pipeflow design artifacts (Effect-based explorations, lattice resolver) |
 
 ## Other
