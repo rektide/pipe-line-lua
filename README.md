@@ -203,7 +203,7 @@ Configuration:
 
 ### Child Lines and Forks
 
-Child lines are thin — they inherit from the parent via metatable and share pipe/output/fact:
+Child lines are thin — they inherit from the parent via metatable and share pipe/output/fact ([`/doc/metatables.md#child-vs-fork`](/doc/metatables.md#child-vs-fork)):
 
 ```lua
 local auth = app:child("auth")
@@ -250,7 +250,7 @@ Runs track pipe revision and sync their position after splices via `run:sync()`.
 
 A run is a lightweight cursor that walks the pipe one segment at a time. When you call `app:info("hello")`, the line creates a run, sets `run.input` to the normalized message payload, and calls `run:execute()`. The run iterates through each segment in order — resolving names from the registry, calling `handler(run)`, and updating `run.input` with whatever the handler returns. When it falls off the end, it pushes the final `run.input` to the line's output queue.
 
-The run also acts as the segment's window into the pipeline. Segments read `run.input` for the current element, and because the run's metatable chains to the line, fields like `run.source`, `run.filter`, and `run.registry` are all available without explicit plumbing.
+The run also acts as the segment's window into the pipeline. Segments read `run.input` for the current element, and because the run's metatable chains to the line, fields like `run.source`, `run.filter`, and `run.registry` are all available without explicit plumbing ([`/doc/metatables.md#run-to-line`](/doc/metatables.md#run-to-line)).
 
 ```lua
 local Run = require("pipe-line.run")
@@ -282,7 +282,7 @@ local independent = run:fork(new_element)  -- owns everything, detached from lin
 
 ### Ownership and Independence
 
-Runs start out lightweight and share everything with the line. You can selectively take ownership of individual fields when you need isolation — `run:own("pipe")` snapshots the pipe so splices don't affect the parent, `run:own("fact")` snapshots the fact table, and `run:set_fact("name")` lazily creates a per-run fact overlay without touching the line.
+Runs start out lightweight and share everything with the line via metatable read-through ([`/doc/metatables.md#cheap-derivation`](/doc/metatables.md#cheap-derivation)). You can selectively take ownership of individual fields when you need isolation — `run:own("pipe")` snapshots the pipe so splices don't affect the parent, `run:own("fact")` snapshots the fact table, and `run:set_fact("name")` lazily creates a per-run fact overlay without touching the line ([`/doc/metatables.md#breaking-chains`](/doc/metatables.md#breaking-chains)).
 
 | Operation | Cost | When to use |
 |-----------|------|-------------|
@@ -298,7 +298,7 @@ If the pipe is spliced while a run is in flight (e.g. by the lattice resolver), 
 
 ## Registry
 
-Repository of known segments. Supports inheritance via `derive()`:
+Repository of known segments. Supports inheritance via `derive()`, which creates a child registry that reads through to its parent via metatable ([`/doc/metatables.md#registry-derivation`](/doc/metatables.md#registry-derivation)):
 
 ```lua
 local Registry = require("pipe-line.registry")
@@ -348,7 +348,7 @@ resolver.resolve_line(my_line)  -- modifies line.pipe directly
 
 ## Segment Instancing
 
-Registry entries are shared prototypes. The line runtime creates per-line instances automatically, controlled by `auto_fork`, `auto_instance`, and `auto_id` ([`/doc/segment-instancing.md`](/doc/segment-instancing.md)).
+Registry entries are shared prototypes. The line runtime creates per-line instances automatically via metatable delegation, controlled by `auto_fork`, `auto_instance`, and `auto_id` ([`/doc/segment-instancing.md`](/doc/segment-instancing.md), [`/doc/metatables.md#segment-instance-delegation`](/doc/metatables.md#segment-instance-delegation)).
 
 Each runtime segment table exposes:
 
@@ -475,6 +475,7 @@ Core documentation:
 - Line lifecycle orchestration: [`/doc/lifecycle.md`](/doc/lifecycle.md)
 - Async queue boundaries: [`/doc/async-handoff.md`](/doc/async-handoff.md)
 - Completion control protocol: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
+- Metatable chains and ownership model: [`/doc/metatables.md`](/doc/metatables.md)
 
 Architecture decisions:
 
