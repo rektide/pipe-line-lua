@@ -42,6 +42,27 @@ High-level shutdown sequence:
 1. `line:ensure_prepared()`
 2. `line:ensure_stopped()`
 
+```mermaid
+sequenceDiagram
+    participant caller as Caller
+    participant line as Line
+    participant seg1 as Segment 1
+    participant seg2 as Segment 2
+    participant future as line.stopped
+
+    caller->>line: close()
+    line->>seg1: ensure_prepared(ctx)
+    line->>seg2: ensure_prepared(ctx)
+    Note over line: await all prepare awaitables
+    line->>seg1: ensure_stopped(ctx)
+    seg1-->>line: seg1.stopped
+    line->>seg2: ensure_stopped(ctx)
+    seg2-->>line: seg2.stopped
+    Note over line: await all stop awaitables
+    line->>future: complete()
+    future-->>caller: settled
+```
+
 ## Hook Context Shape
 
 Lifecycle context includes:

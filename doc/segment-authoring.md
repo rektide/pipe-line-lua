@@ -92,6 +92,23 @@ Segment code is easiest to reason about in three layers:
 2. **Instance layer**: per-line setup in `init(context)`
 3. **Run layer**: per-message behavior in `handler(run)`
 
+```mermaid
+flowchart TB
+    subgraph spec[Spec Layer]
+        type["type · wants · emits"]
+        hooks["init · ensure_prepared · ensure_stopped"]
+        handler["handler(run)"]
+    end
+    subgraph instance[Instance Layer — per line]
+        init["init(ctx) sets up state, queues, futures"]
+    end
+    subgraph runlayer[Run Layer — per message]
+        handlerRun["handler(run) reads run.input, returns result"]
+    end
+    spec -->|"line materializes"| instance
+    instance -->|"each message"| runlayer
+```
+
 Use `init` for per-instance defaults and state. Avoid mutating shared prototypes at run time.
 
 ## Lifecycle Context

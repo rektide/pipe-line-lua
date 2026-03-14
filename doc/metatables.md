@@ -73,6 +73,20 @@ nil
 
 `jwt.pipe` resolves to `app.pipe`. `jwt.output` resolves to `app.output`. `jwt.source` resolves to `"jwt"` — its own local field. `jwt:full_source()` walks `rawget` up the parent chain to build `"myapp:auth:jwt"`.
 
+```mermaid
+flowchart TB
+    jwt["jwt<br/><i>source = 'jwt'</i>"]
+    auth["auth<br/><i>source = 'auth'</i>"]
+    app["app<br/><i>source = 'myapp'</i><br/>pipe · output · registry · fact"]
+    methods["Line methods<br/>log · info · run · child · fork ..."]
+
+    jwt -->|"__index"| methods
+    methods -.->|"not found → parent"| auth
+    auth -->|"__index"| methods
+    methods -.->|"not found → parent"| app
+    app -->|"__index"| methods
+```
+
 ### Two-Phase Index
 
 The `LINE_MT.__index` function is not a simple table lookup — it's a two-phase function ([`line.lua:178`](/lua/pipe-line/line.lua)):
@@ -119,6 +133,14 @@ end })
 
 This is what makes `run.filter`, `run.source`, `run.registry`, and every other line field available to segments without any explicit passing. A segment handler receives `run` and can read anything from the line — or from the line's parent, or grandparent — transparently.
 
+```mermaid
+flowchart LR
+    seg["handler(run)"] -->|"run.filter"| run["Run<br/><i>input · pos · line</i>"]
+    run -->|"__index"| runM["Run methods"]
+    runM -.->|"not found"| line["Line<br/><i>filter · pipe · output ...</i>"]
+    line -.->|"parent"| parent["Parent Line"]
+```
+
 ### Cloned Run to Parent Run
 
 `run:clone(new_input)` creates a child run with a three-level `__index`:
@@ -162,6 +184,16 @@ instance._pipe_line_is_instance = true
 ```
 
 The instance starts empty. It inherits `handler`, `wants`, `emits`, `init`, `ensure_prepared`, `ensure_stopped`, and everything else from the prototype. Per-instance state (set during `init` or at runtime) lives on the instance table and shadows the prototype.
+
+```mermaid
+flowchart LR
+    reg["Registry<br/>prototype table"]
+    instA["Instance (Line A)<br/><i>id · _pipe_line_line</i>"]
+    instB["Instance (Line B)<br/><i>id · _pipe_line_line</i>"]
+
+    instA -->|"__index"| reg
+    instB -->|"__index"| reg
+```
 
 ### Segment Fork Path
 

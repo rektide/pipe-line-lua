@@ -53,6 +53,28 @@ The built-in `completion` segment keeps its own `segment.stopped` deferred.
 - `ensure_stopped` emits one `done` control run unless `line.auto_completion_done_on_close == false`.
 - the segment resolves `segment.stopped` when completion accounting is settled.
 
+```mermaid
+sequenceDiagram
+    participant line as Line
+    participant comp as completion segment
+    participant state as Completion State
+
+    line->>comp: ensure_prepared(ctx)
+    comp->>line: run(hello)
+    line->>comp: handler(run)
+    comp->>state: apply(hello) → hello=1
+    Note over state: settled = false (done < hello)
+
+    Note over line: ... normal messages flow ...
+
+    line->>comp: ensure_stopped(ctx)
+    comp->>line: run(done)
+    line->>comp: handler(run)
+    comp->>state: apply(done) → done=1
+    Note over state: settled = true (done ≥ hello)
+    comp->>comp: stopped:complete()
+```
+
 Use selector-based waiting when you want completion-segment shutdown state:
 
 ```lua
