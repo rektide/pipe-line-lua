@@ -46,6 +46,20 @@ These are state futures, not action triggers.
 3. wait for the corresponding strategy future
 4. resolve/return `stopped` when the segment stop contract is complete
 
+```mermaid
+flowchart LR
+    entry[ensure_stopped()] --> read[read stop_type]
+    read --> branch{stop_type}
+    branch -->|stop_drain| drainverb[ensure_stopped_drain()]
+    branch -->|stop_immediate| immediateverb[ensure_stopped_immediate()]
+
+    drainverb --> waitdrain[await stopped_drain]
+    immediateverb --> waitimmediate[await stopped_immediate]
+
+    waitdrain --> aggregate[resolve/return stopped]
+    waitimmediate --> aggregate
+```
+
 ### `stop_drain`
 
 - preferred default

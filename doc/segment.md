@@ -120,6 +120,25 @@ These semantics are the foundation for both sync and async segment behavior.
 
 This avoids double flow and keeps run semantics deterministic.
 
+```mermaid
+flowchart LR
+    run[run:execute] --> kind{segment role}
+    kind --> sync[sync transformer]
+    sync --> syncret[returns value or nil]
+    syncret --> next1[inline next segment]
+
+    kind --> boundary[async boundary]
+    boundary --> handoff[handoff continuation]
+    handoff --> stopfalse[return false]
+    stopfalse --> resume[continuation:next later]
+    resume --> next2[downstream segment]
+
+    kind --> completion[completion controller]
+    completion --> control[read protocol run fields]
+    control --> settle[update hello/done/settled]
+    settle --> next3[continue or resolve stopped]
+```
+
 Continuation ownership is run-centric:
 
 | Field | Ownership | Shape |

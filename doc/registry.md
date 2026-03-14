@@ -112,6 +112,26 @@ Effects:
 | unresolved lookup | falls through to parent registry |
 | metadata composition | effective emits index includes parent and child entries |
 
+```mermaid
+flowchart TB
+    subgraph child[Child Registry]
+        childseg[segment[name]]
+        childidx[emits_index]
+        childcache[get_emits_index cache]
+    end
+
+    subgraph parent[Parent Registry]
+        parentseg[parent segment[name]]
+        parentidx[parent emits_index]
+    end
+
+    line[line:resolve_segment(name)] --> childseg
+    childseg -->|miss| parentseg
+    childidx --> childcache
+    parentidx --> childcache
+    childcache --> resolver[resolver candidates by fact]
+```
+
 ## How Line Uses Registry
 
 `line:resolve_segment(name)` resolves in this order:

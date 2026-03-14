@@ -190,9 +190,11 @@ sequenceDiagram
 
     caller->>line: close()
     line->>seg: ensure_prepared(ctx)
-    Note over line: await prepare awaitables
+    seg-->>line: prepare task_or_tasks
+    Note over line: collect + await prepare awaitables
     line->>seg: ensure_stopped(ctx)
-    Note over line: await stop awaitables
+    seg-->>line: seg.stopped + stop task_or_tasks
+    Note over line: collect + await stop awaitables
     line->>stopped: complete()
     stopped-->>caller: settled
 ```

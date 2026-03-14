@@ -29,6 +29,24 @@ If you want to understand how a message moves through the system in exact order,
 | `run:own(field)` | Take local ownership of field | Escape read-through when isolation is needed |
 | `run.continuation` | Optional run-owned continuation tracking field | Supports async boundary handoff bookkeeping |
 
+## End-to-End Flow
+
+```mermaid
+flowchart LR
+    entry[line:run(input)] --> make[Run.new(line, config)]
+    make --> exec[run:execute()]
+    exec --> seg[resolve segment + handler(run)]
+    seg --> decision{handler result}
+    decision -->|value or nil| advance[advance pos + continue]
+    advance --> exec
+    decision -->|false| stop[stop inline run path]
+    stop --> handoff[continuation owned by async transport]
+    handoff --> resume[continuation:next(...)]
+    resume --> exec
+    exec --> done{past end?}
+    done -->|yes| output[push run.input to output]
+```
+
 ## What a Run Actually Owns
 
 A run typically owns `type`, `line`, `pipe`, `pos`, `input`, and `_rev`. Everything else is resolved through metatable lookup.
