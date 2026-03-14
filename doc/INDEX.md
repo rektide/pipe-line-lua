@@ -12,6 +12,7 @@ These define the current architecture. Read these to understand pipe-line.
 | [`lifecycle.md`](/doc/lifecycle.md) | 2026-02-26 | Line lifecycle orchestration: `ensure_prepared`, `ensure_stopped`, `close`, hook context shape, strategy-specific stop |
 | [`async-handoff.md`](/doc/async-handoff.md) | 2026-02-26 | Explicit async boundaries via `mpsc_handoff`; custom handoff; manual continuation mode |
 | [`completion-protocol.md`](/doc/completion-protocol.md) | 2026-02-26 | Completion control runs, state accounting, completion segment stop behavior |
+| [`metatables.md`](/doc/metatables.md) | 2026-03-13 | All metatable chains: line→parent, run→line, clone→parent run, segment instances, registry derivation, fact overlays, ownership semantics |
 
 ## Architecture Decision Records
 
