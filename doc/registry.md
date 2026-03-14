@@ -17,34 +17,36 @@ If `Segment` defines behavior and `Line` orchestrates execution, `Registry` prov
 
 ## Core Responsibilities
 
-Registry is responsible for:
-
-- storing segment definitions by name
-- resolving name -> definition with parent-chain fallback
-- maintaining local `emits_index` metadata incrementally
-- providing effective merged emits index across parent chain
-- supporting hierarchical registry composition via `derive()`
+| Responsibility | Description |
+|----------------|-------------|
+| definition storage | stores segment definitions by name |
+| resolution | resolves `name -> definition` with parent fallback |
+| metadata indexing | maintains local `emits_index` incrementally |
+| effective index composition | provides merged emits index across parent chain |
+| hierarchy support | supports derived registries via `derive()` |
 
 ## Data Model
 
-Core fields:
-
-- `type = "registry"`
-- `segment` (name -> handler/segment table)
-- `emits_index` (fact -> entries[])
-- `_emits_by_name` (name -> emitted facts snapshot)
-- `rev` (local revision counter)
-- emits index cache fields (`_emits_index_cache*`)
+| Field | Purpose |
+|-------|---------|
+| `type = "registry"` | identity marker |
+| `segment` | name -> handler/segment table map |
+| `emits_index` | local fact -> entries[] index |
+| `_emits_by_name` | tracks emitted facts for each registered name |
+| `rev` | local revision counter |
+| `_emits_index_cache*` | effective index cache and cache invalidation state |
 
 ## Resolution Semantics
 
 `registry:resolve(name)` behavior:
 
-1. non-string values are returned unchanged
-2. check `self.segment[name]`
-3. check `self[name]`
-4. recurse into parent registry (if derived)
-5. return `nil` if unresolved
+| Step | Resolution rule |
+|------|-----------------|
+| 1 | non-string values are returned unchanged |
+| 2 | check `self.segment[name]` |
+| 3 | check `self[name]` |
+| 4 | recurse into parent registry if present |
+| 5 | return `nil` if unresolved |
 
 This makes it safe to pass direct function/table segment references through resolver paths.
 
@@ -54,18 +56,22 @@ This makes it safe to pass direct function/table segment references through reso
 
 On register:
 
-1. increment `rev`
-2. invalidate effective emits cache
-3. remove prior emits index entries for same name (if any)
-4. store new handler in `segment[name]`
-5. if handler has `emits`, add index entries for each emitted fact
+| Step | Register action |
+|------|-----------------|
+| 1 | increment `rev` |
+| 2 | invalidate effective emits cache |
+| 3 | remove prior emits entries for same name |
+| 4 | store new handler in `segment[name]` |
+| 5 | add new emits entries for each emitted fact |
 
 Each emits entry stores:
 
-- `name`
-- `wants`
-- `emits`
-- `handler`
+| Entry field | Meaning |
+|-------------|---------|
+| `name` | registered segment name |
+| `wants` | required facts |
+| `emits` | provided facts |
+| `handler` | segment definition payload |
 
 This makes dependency metadata immediately queryable without full registry rescans.
 
@@ -73,13 +79,17 @@ This makes dependency metadata immediately queryable without full registry resca
 
 `registry:get_emits_index()` returns merged view of:
 
-- parent effective emits index
-- local `emits_index`
+| Merge source | Contribution |
+|--------------|--------------|
+| parent effective index | inherited candidates |
+| local `emits_index` | local candidates and overrides |
 
 Caching rules:
 
-- cache valid when local `rev` unchanged and parent effective index identity unchanged
-- otherwise recompute merged result and refresh cache
+| Cache condition | Behavior |
+|-----------------|----------|
+| local `rev` unchanged and parent index identity unchanged | reuse cached merged index |
+| any change in local rev or parent identity | recompute merged index and refresh cache |
 
 This keeps repeated resolver queries cheap while preserving correctness across updates.
 
@@ -87,28 +97,36 @@ This keeps repeated resolver queries cheap while preserving correctness across u
 
 `registry:derive(config?)` creates a child registry with:
 
-- fresh local `segment` map
-- fresh local `emits_index`
-- independent local `rev`
-- metatable `__index` fallback to parent registry
+| Child field | Initial state |
+|-------------|---------------|
+| `segment` | fresh local map |
+| `emits_index` | fresh local index |
+| `rev` | independent local revision |
+| `__index` | parent registry fallback |
 
 Effects:
 
-- child can override names without mutating parent
-- unresolved names naturally fall through parent
-- child effective emits index includes both parent and child contributions
+| Derived behavior | Result |
+|------------------|--------|
+| local override | child can replace names without mutating parent |
+| unresolved lookup | falls through to parent registry |
+| metadata composition | effective emits index includes parent and child entries |
 
 ## How Line Uses Registry
 
 `line:resolve_segment(name)` resolves in this order:
 
-1. line/local inherited field lookup
-2. registry `resolve(name)`
+| Order | Resolution path |
+|-------|-----------------|
+| 1 | line/local inherited field lookup |
+| 2 | registry `resolve(name)` |
 
 This allows both:
 
-- ad-hoc line-local segment overrides
-- standard registry-managed segment lookup
+| Pattern | Capability |
+|---------|------------|
+| line-local override | ad-hoc behavior injection on specific line trees |
+| registry-managed lookup | reusable named segment catalog |
 
 After resolution, line may materialize factories and instantiate table segments per line settings.
 
@@ -116,8 +134,10 @@ After resolution, line may materialize factories and instantiate table segments 
 
 Resolver-oriented segment metadata:
 
-- `wants`: required facts
-- `emits`: produced facts
+| Metadata field | Resolver meaning |
+|----------------|------------------|
+| `wants` | required facts |
+| `emits` | provided facts |
 
 Registry emits index maps fact names to candidate providers, enabling dependency-guided segment insertion.
 
@@ -160,13 +180,17 @@ local seg = child:resolve("timestamper")
 
 ## Operational Guidance
 
-- keep segment names stable and explicit
-- include `wants`/`emits` when resolver participation matters
-- prefer deriving registries for scope-local overrides instead of mutating global registry
-- treat `rev` and emits index caches as implementation details (do not couple external behavior to cache internals)
+| Guidance | Reason |
+|----------|--------|
+| keep names stable and explicit | improves readability and reliable resolution |
+| include `wants`/`emits` where resolver participation matters | enables dependency-aware insertion |
+| prefer derived registries for local overrides | avoids global mutation coupling |
+| treat `rev`/cache fields as internals | avoid coupling behavior to cache implementation details |
 
 ## Relationship to Other Core Components
 
-- **Segment** definitions are registered in registry. See [`/doc/segment.md`](/doc/segment.md).
-- **Line** resolves named pipe entries through registry. See [`/doc/line.md`](/doc/line.md).
-- **Run** executes resolved handlers downstream. See [`/doc/run.md`](/doc/run.md).
+| Component | Relationship to Registry |
+|-----------|--------------------------|
+| [`/doc/segment.md`](/doc/segment.md) | definitions are registered in registry |
+| [`/doc/line.md`](/doc/line.md) | line resolves named pipe entries through registry |
+| [`/doc/run.md`](/doc/run.md) | run executes handlers resolved through line/registry path |

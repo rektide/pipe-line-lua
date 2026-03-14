@@ -17,14 +17,14 @@ If `Run` is the per-message cursor, `Line` is the control tower.
 
 ## Core Responsibilities
 
-Line is responsible for:
-
-- owning a pipe definition (`line.pipe`)
-- creating runs (`line:run(config)`)
-- resolving and materializing pipeline segments
-- orchestrating lifecycle hooks across segments
-- exposing convenience logging methods (`line:info`, `line:error`, etc.)
-- managing inheritance (`child`) and independent derivation (`fork`)
+| Responsibility | Description |
+|----------------|-------------|
+| pipe ownership | owns active pipeline definition (`line.pipe`) |
+| run creation | creates run instances (`line:run(config)`) |
+| segment materialization | resolves names/factories into runtime segment instances |
+| lifecycle orchestration | drives `ensure_prepared` and `ensure_stopped` across the pipe |
+| logging facade | exposes level-specific convenience methods (`error`, `warn`, `info`, `debug`, `trace`, `log`) |
+| derivation control | provides inherited `child` and independent `fork` line creation |
 
 ## Construction and Defaults
 
@@ -32,23 +32,27 @@ A line is created by calling module entrypoint or `Line(config)`.
 
 Default segment stack:
 
-- `timestamper`
-- `ingester`
-- `cloudevent`
-- `module_filter`
-- `completion`
+| Order | Segment |
+|-------|---------|
+| 1 | `timestamper` |
+| 2 | `ingester` |
+| 3 | `cloudevent` |
+| 4 | `module_filter` |
+| 5 | `completion` |
 
 Root defaults include:
 
-- `stopped = Future.new()`
-- `auto_completion_done_on_close = true`
-- `auto_id = true`
-- `auto_fork = true`
-- `auto_instance = true`
-- `pipe = Pipe(Line.defaultSegment)`
-- `output = MpscQueue.new()`
-- `fact = {}`
-- `sourcer = logutil.full_source`
+| Field | Default |
+|-------|---------|
+| `stopped` | `Future.new()` |
+| `auto_completion_done_on_close` | `true` |
+| `auto_id` | `true` |
+| `auto_fork` | `true` |
+| `auto_instance` | `true` |
+| `pipe` | `Pipe(Line.defaultSegment)` |
+| `output` | `MpscQueue.new()` |
+| `fact` | `{}` |
+| `sourcer` | `logutil.full_source` |
 
 Child lines inherit through parent chain unless explicitly shadowed.
 
@@ -62,25 +66,31 @@ line:run({ input = payload })
 
 Logging helpers normalize payload then call `line:run(...)`:
 
-- `line:error`
-- `line:warn`
-- `line:info`
-- `line:debug`
-- `line:trace`
-- `line:log`
+| Method | Role |
+|--------|------|
+| `line:error` | normalize at error level and run |
+| `line:warn` | normalize at warn level and run |
+| `line:info` | normalize at info level and run |
+| `line:debug` | normalize at debug level and run |
+| `line:trace` | normalize at trace level and run |
+| `line:log` | generic normalize-and-run entry |
 
 ## Segment Resolution and Materialization
 
 Before execution/lifecycle, line resolves pipe entries:
 
-- string entries to registry lookup (`line:resolve_segment`)
-- table entries may be instantiated per-line (`auto_fork`, `auto_instance`)
-- segment factories may be materialized into concrete segment objects
+| Pipe entry shape | Resolution behavior |
+|------------------|---------------------|
+| string | resolve via `line:resolve_segment` and registry chain |
+| table | may be instantiated per-line depending on `auto_fork` / `auto_instance` |
+| segment factory | may be materialized into concrete segment object |
 
 Segment identity assignment:
 
-- `seg.type` ensured
-- `seg.id` assigned when `auto_id ~= false`
+| Identity field | Behavior |
+|----------------|----------|
+| `seg.type` | ensured for runtime segment tables |
+| `seg.id` | assigned when `auto_id ~= false` |
 
 ## Selection APIs
 
@@ -88,9 +98,11 @@ Segment identity assignment:
 
 Select runtime segment instances by:
 
-- `nil` -> all table segments
-- string -> match `seg.type`
-- predicate function -> custom matching
+| Selector form | Meaning |
+|---------------|---------|
+| `nil` | all table segments |
+| string | match `seg.type` |
+| function | custom predicate on `(seg, { line, pos })` |
 
 `opts.materialize` controls whether factories are materialized during selection.
 
@@ -98,9 +110,11 @@ Select runtime segment instances by:
 
 Returns a future that settles when:
 
-- currently matching segment `stopped` awaitables settle
-- newly discovered matching awaitables also settle
-- line stop state is complete
+| Condition | Meaning |
+|-----------|---------|
+| current matches settled | already-known matching `seg.stopped` awaitables settle |
+| future matches settled | newly discovered matching awaitables also settle |
+| line stop settled | line-level stop state is complete |
 
 This is the targeted wait primitive for type-based shutdown observation.
 
@@ -112,20 +126,24 @@ Runs `segment.ensure_prepared(context)` for each segment and awaits collected aw
 
 Context fields:
 
-- `line`
-- `pos`
-- `segment`
-- `force = true` (for line lifecycle path)
+| Context key | Meaning |
+|-------------|---------|
+| `line` | current line instance |
+| `pos` | segment position in pipe |
+| `segment` | runtime segment instance |
+| `force` | true for line lifecycle orchestration path |
 
 ### `line:ensure_stopped()`
 
 Stops the line lifecycle:
 
-1. collect existing `seg.stopped` handles
-2. call each `segment.ensure_stopped(context)`
-3. collect returned awaitables
-4. await all
-5. resolve `line.stopped`
+| Step | Operation |
+|------|-----------|
+| 1 | collect existing `seg.stopped` handles |
+| 2 | call each `segment.ensure_stopped(context)` |
+| 3 | collect returned awaitables |
+| 4 | await all collected stop awaitables |
+| 5 | resolve `line.stopped` |
 
 ### `line:close()`
 
@@ -154,13 +172,17 @@ sequenceDiagram
 
 Line can inject queue boundaries with:
 
-- `line:addHandoff(pos?, config?)`
+| API | Purpose |
+|-----|---------|
+| `line:addHandoff(pos?, config?)` | insert explicit `mpsc_handoff` boundary into pipe |
 
 `mpsc_handoff` behavior in line lifecycle:
 
-- consumer startup comes from `ensure_prepared`
-- consumer shutdown comes from `ensure_stopped`
-- handler returns `false` on handoff and continuation run resumes later
+| Lifecycle phase | Boundary behavior |
+|-----------------|-------------------|
+| prepare | starts queue consumer path |
+| stop | stops queue consumer path |
+| run execution | handler returns `false` after handoff; continuation run resumes later |
 
 Consumer auto-start control currently checks `line.autoStartConsumers` in transport mpsc implementation.
 
@@ -170,25 +192,20 @@ The default `completion` segment is part of `Line.defaultSegment`.
 
 Key interactions:
 
-- `ensure_prepared` emits one `hello` control run
-- `ensure_stopped` emits one `done` control run unless `auto_completion_done_on_close == false`
-- completion segment resolves its own `stopped` state when settled
+| Interaction | Effect |
+|-------------|--------|
+| `ensure_prepared` | emits one `hello` control run |
+| `ensure_stopped` | emits one `done` control run unless auto done is disabled |
+| completion handler state | resolves completion segment `stopped` future when settled |
 
 This gives close-time completion accounting without custom orchestration at callsite.
 
 ## Child vs Fork
 
-### `line:child(...)`
-
-- thin inherited line
-- local source override, parent read-through for most fields
-
-### `line:fork(...)`
-
-- child-like derivation plus owned state:
-  - cloned `pipe`
-  - new `output`
-  - copied `fact`
+| API | Inheritance model | Owned state changes |
+|-----|-------------------|---------------------|
+| `line:child(...)` | thin inherited line | local source override; parent read-through for most fields |
+| `line:fork(...)` | child-like derivation | owns cloned `pipe`, new `output`, copied `fact` |
 
 Use `child` for cheap contextual derivation, `fork` for execution independence.
 
@@ -202,6 +219,8 @@ Runs remain position-correct via run-side splice journal sync (`run:sync()`).
 
 ## Relationship to Other Core Components
 
-- **Run** executes the per-message algorithm under line governance. See [`/doc/run.md`](/doc/run.md).
-- **Segment** defines handler/lifecycle contracts line calls. See [`/doc/segment.md`](/doc/segment.md).
-- **Registry** resolves named segment references used by line. See [`/doc/registry.md`](/doc/registry.md).
+| Component | Relationship to Line |
+|-----------|----------------------|
+| [`/doc/run.md`](/doc/run.md) | executes per-message algorithm under line orchestration |
+| [`/doc/segment.md`](/doc/segment.md) | defines handler/lifecycle contract line invokes |
+| [`/doc/registry.md`](/doc/registry.md) | resolves named segment references used by line |

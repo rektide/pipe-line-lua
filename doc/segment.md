@@ -18,22 +18,21 @@ This guide covers both authoring and runtime semantics, including async boundary
 
 ## Core Segment Contract
 
-Per-message behavior:
-
-- `handler(run)`
-
-Lifecycle hooks:
-
-- `init(context)`
-- `ensure_prepared(context)`
-- `ensure_stopped(context)`
+| Contract surface | Description |
+|------------------|-------------|
+| `handler(run)` | per-message behavior entrypoint |
+| `init(context)` | per-instance initialization hook |
+| `ensure_prepared(context)` | readiness/start lifecycle hook |
+| `ensure_stopped(context)` | stop lifecycle hook |
 
 Context fields typically include:
 
-- `line`
-- `pos`
-- `segment`
-- `force` for line-level lifecycle orchestration paths
+| Context key | Meaning |
+|-------------|---------|
+| `line` | owning line |
+| `pos` | segment position in pipe |
+| `segment` | runtime segment instance |
+| `force` | line lifecycle orchestration path marker |
 
 `ensure_prepared` and `ensure_stopped` should be idempotent.
 
@@ -79,31 +78,43 @@ registry:register("validator", {
 
 Run interprets handler returns as:
 
-- non-`nil` (except `false`): replace `run.input`
-- `false`: stop this run path immediately
-- `nil`: keep current `run.input`
+| Handler result | Run behavior |
+|----------------|--------------|
+| non-`nil` (except `false`) | replace `run.input` |
+| `false` | stop this run path immediately |
+| `nil` | keep current `run.input` |
 
 These semantics are the foundation for both sync and async segment behavior.
 
 ## Sync and Async Segment Patterns
 
-### Sync pattern
-
-- handler transforms and returns immediately
-- run continues inline
-
-### Async boundary pattern
-
-- handler hands off continuation ownership (queue/task/pending)
-- handler returns `false` to stop inline path now
-- continuation run resumes later with `:next(...)`
+| Pattern | Handler behavior | Downstream effect |
+|---------|------------------|-------------------|
+| sync | transforms/filters and returns immediately | run continues inline |
+| async boundary | hands off continuation ownership, then returns `false` | continuation run resumes later with `:next(...)` |
 
 This avoids double flow and keeps run semantics deterministic.
 
 Continuation ownership is run-centric:
 
-- `run.continuation` can hold tracking state
-- single-slot continuation tracking is acceptable
+| Field | Ownership | Shape |
+|-------|-----------|-------|
+| `run.continuation` | run-owned | flexible; single-slot tracking is acceptable |
+
+## Async Transport and Completion Handoff Strategy
+
+Segment async behavior is not one mechanism. It is two connected strategies:
+
+| Strategy layer | Role | Typical carrier |
+|----------------|------|-----------------|
+| transport handoff | move continuation to async execution context | queue envelope, task pending list, task resume path |
+| completion handoff | determine when shutdown/completion is considered settled | completion counters/futures and lifecycle stop hooks |
+
+In practice:
+
+- `mpsc_handoff` owns transport boundary behavior.
+- `completion` owns completion settlement behavior.
+- line lifecycle (`ensure_prepared`, `ensure_stopped`) coordinates both.
 
 ## Protocol-Aware Segment Definition
 
@@ -149,10 +160,12 @@ local handoff = segment.mpsc_handoff({
 
 Behavior summary:
 
-- chooses continuation strategy
-- pushes continuation into handoff queue envelope
-- returns `false`
-- downstream consumer resumes with continuation `:next(...)`
+| Step | Boundary behavior |
+|------|-------------------|
+| continuation selection | chooses strategy (`self`, `clone`, `fork`) |
+| transport handoff | pushes continuation into queue envelope |
+| inline stop | returns `false` |
+| deferred resume | downstream consumer resumes continuation with `:next(...)` |
 
 Manual mode pattern:
 
@@ -168,15 +181,19 @@ continuation:next()
 
 Control fields are run-level:
 
-- `pipe_line_protocol = true`
-- `mpsc_completion = "hello" | "done" | "shutdown"`
-- `mpsc_completion_name` optional
+| Field | Meaning |
+|-------|---------|
+| `pipe_line_protocol = true` | marks run as protocol/control run |
+| `mpsc_completion` | completion control signal (`hello`, `done`, `shutdown`) |
+| `mpsc_completion_name` | optional signal source/identity |
 
 Completion segment behavior:
 
-- `ensure_prepared`: emits one `hello` control run
-- `ensure_stopped`: emits one `done` control run unless disabled on line
-- `handler`: applies completion counters (`hello`, `done`, `settled`) and resolves `state.stopped` when settled
+| Hook / path | Completion behavior |
+|-------------|---------------------|
+| `ensure_prepared` | emits one `hello` control run |
+| `ensure_stopped` | emits one `done` control run unless disabled on line |
+| `handler` | applies completion counters and resolves `state.stopped` when settled |
 
 This allows completion settlement to be modeled as regular run flow, not out-of-band queue metadata.
 
@@ -186,26 +203,34 @@ Runtime segments are line-bound instances, usually derived from registry prototy
 
 Identity fields:
 
-- `type`: segment class identity
-- `id`: runtime slot identity (when `auto_id` enabled)
+| Field | Meaning |
+|-------|---------|
+| `type` | segment class identity |
+| `id` | runtime slot identity (when `auto_id` enabled) |
 
 Common line controls that affect instancing:
 
-- `auto_fork`
-- `auto_instance`
-- `auto_id`
+| Line control | Effect on segment runtime instancing |
+|--------------|------------------------------------|
+| `auto_fork` | use `seg:fork(...)` when available |
+| `auto_instance` | create metatable instance when needed |
+| `auto_id` | assign runtime segment `id` |
 
 `init(context)` is preferred for per-instance state setup.
 
 ## Segment Relationships in the System
 
-- **Line** orchestrates segment lifecycle and resolution. See [`/doc/line.md`](/doc/line.md).
-- **Run** executes segment handlers and applies return semantics. See [`/doc/run.md`](/doc/run.md).
-- **Registry** is the source of named segment prototypes. See [`/doc/registry.md`](/doc/registry.md).
+| Component | Relationship to Segment |
+|-----------|-------------------------|
+| [`/doc/line.md`](/doc/line.md) | orchestrates segment lifecycle and resolution |
+| [`/doc/run.md`](/doc/run.md) | executes segment handlers and applies return semantics |
+| [`/doc/registry.md`](/doc/registry.md) | provides named segment prototypes |
 
-Together these form the execution chain:
+Execution chain summary:
 
-1. registry provides segment definitions
-2. line resolves/materializes runtime segment instances
-3. run invokes segment handlers in order
-4. segments may hand off async continuation and re-enter later
+| Order | Step |
+|-------|------|
+| 1 | registry provides segment definitions |
+| 2 | line resolves/materializes runtime segment instances |
+| 3 | run invokes segment handlers in order |
+| 4 | segments may hand off async continuation and re-enter later |
