@@ -2,7 +2,9 @@
 
 > Structured data-flow pipeline for Lua, with async queue handoff via [coop.nvim](https://github.com/gregorias/coop.nvim)
 
-pipe-line is a composable pipeline library. Messages flow through an ordered sequence of **segments** — each transforming, filtering, or enriching the data. The primary use case is structured logging within Neovim, but the core model is general-purpose: any ordered processing pipeline with optional async boundaries and dependency injection.
+pipe-line gives you a composable processing pipeline that's easy to start with and grows with your needs. At its simplest, it's a structured logger — `app:info("hello")` sends a message through a chain of segments that timestamp it, tag it with a source, and push it to an output queue. But because every piece of the pipeline is a first-class object you can inspect, splice, clone, and extend, the same model scales to async processing, fan-out, dependency-injected segment graphs, and coordinated shutdown.
+
+Messages flow through an ordered sequence of **segments**. Each segment transforms, filters, or enriches the data. Segments are resolved by name from a **registry**, so pipelines are declarative — just a list of names — until the moment they run. A **lattice resolver** can even fill in missing segments automatically based on dependency metadata. When you need an async boundary, drop in an `mpsc_handoff` and the pipeline splits into sync and async halves connected by a queue.
 
 ## Core Runtime Model
 
@@ -18,12 +20,12 @@ Registry (segment library)
 
 | Term | Description |
 |------|-------------|
-| **Line** | Pipeline definition: holds a pipe, registry, output queue, config |
-| **Pipe** | Ordered array of segments — first-class object with revision tracking and splice journaling |
-| **Segment** | Processing component: `handler(run)` plus optional lifecycle hooks and metadata |
-| **Run** | Lightweight cursor that walks a pipe, executing each segment |
-| **Registry** | Repository of known segment types, indexed by name, with `emits_index` for dependency resolution |
-| **Fact** | Named capability tracked on line and/or run for lattice resolver dependency injection |
+| **Line** | Pipeline definition: holds a pipe, registry, output queue, and config. Create child lines for module-scoped context. |
+| **Pipe** | Ordered array of segments — a first-class object with revision tracking and splice journaling. |
+| **Segment** | Processing step: `handler(run)` plus optional lifecycle hooks (`init`, `ensure_prepared`, `ensure_stopped`) and dependency metadata (`wants`/`emits`). |
+| **Run** | Lightweight cursor that walks a pipe, executing each segment in order. Supports clone/fork for fan-out and independence. |
+| **Registry** | Library of known segment types, indexed by name. Maintains an `emits_index` for lattice resolver dependency injection. Supports inheritance via `derive()`. |
+| **Fact** | Named capability tracked on line and/or run — the currency of the lattice resolver. Segments declare what they `want` and what they `emit`. |
 
 ## Installation
 
