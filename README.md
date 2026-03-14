@@ -248,29 +248,53 @@ Runs track pipe revision and sync their position after splices via `run:sync()`.
 
 ## Run
 
-A lightweight cursor that walks the pipe. Access the element via `run.input`, line config via the run's metatable chain to the line.
+A run is a lightweight cursor that walks the pipe one segment at a time. When you call `app:info("hello")`, the line creates a run, sets `run.input` to the normalized message payload, and calls `run:execute()`. The run iterates through each segment in order — resolving names from the registry, calling `handler(run)`, and updating `run.input` with whatever the handler returns. When it falls off the end, it pushes the final `run.input` to the line's output queue.
+
+The run also acts as the segment's window into the pipeline. Segments read `run.input` for the current element, and because the run's metatable chains to the line, fields like `run.source`, `run.filter`, and `run.registry` are all available without explicit plumbing.
 
 ```lua
 local Run = require("pipe-line.run")
+
+-- Usually you don't create runs directly — line:run() does it.
+-- But for testing or custom control:
 local r = Run(line, { input = { message = "hello" }, noStart = true })
-r:execute()    -- walk the pipe from current pos
-r:next()       -- advance and continue
-r:emit(el)     -- clone + next for fan-out
-r:clone(el)    -- lightweight copy sharing everything with parent
-r:fork(el)     -- fully independent copy (own pipe + fact)
-r:own("pipe")  -- take ownership, breaking line read-through
-r:set_fact("time")  -- lazily create per-run fact
+r:execute()  -- walk the pipe from current pos to end
 ```
 
-### Independence Spectrum
+### Fan-Out
 
-| Operation | Cost | Use case |
-|-----------|------|----------|
-| `run:next()` | 0 alloc | Normal single-element flow |
-| `run:emit(el)` | 1 small table | Fan-out convenience (default: clone strategy) |
-| `run:clone(el)` | 1 small table | Fan-out, shares everything |
-| `run:clone(el)` + `set_fact()` | 2 small tables | Per-element fact |
-| `run:fork(el)` | Everything cloned | Full detach from line |
+A segment can produce multiple outputs by cloning or forking the run. Each clone gets its own `input` but shares everything else with the parent — pipe, fact, output — keeping fan-out cheap. Use `emit` for the common case:
+
+```lua
+registry:register("splitter", function(run)
+    for _, part in ipairs(run.input.parts) do
+        run:emit(part)           -- clone + next: each part continues independently
+    end
+    -- return nil: we handled forwarding ourselves
+end)
+```
+
+When you need full independence — your own pipe, your own fact table — fork instead:
+
+```lua
+local independent = run:fork(new_element)  -- owns everything, detached from line
+```
+
+### Ownership and Independence
+
+Runs start out lightweight and share everything with the line. You can selectively take ownership of individual fields when you need isolation — `run:own("pipe")` snapshots the pipe so splices don't affect the parent, `run:own("fact")` snapshots the fact table, and `run:set_fact("name")` lazily creates a per-run fact overlay without touching the line.
+
+| Operation | Cost | When to use |
+|-----------|------|-------------|
+| `run:next()` | 0 alloc | Normal single-element flow — just advance the cursor |
+| `run:emit(el)` | 1 small table | Fan-out: clone + next in one call |
+| `run:clone(el)` | 1 small table | Fan-out when you need the child run reference |
+| `run:clone(el)` + `set_fact()` | 2 small tables | Fan-out with per-element fact tracking |
+| `run:fork(el)` | Everything cloned | Full detach — independent pipe, fact, output |
+
+### Pipe Sync
+
+If the pipe is spliced while a run is in flight (e.g. by the lattice resolver), the run adjusts its position on the next `execute()` or `next()` call using the pipe's splice journal. This keeps the run's cursor consistent even as the pipe mutates underneath it.
 
 ## Registry
 
