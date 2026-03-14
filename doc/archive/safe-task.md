@@ -235,6 +235,281 @@ Changed:
 
 New model: **Any segment handler can return a coop future/task, and run:execute() automatically awaits it before continuing.**
 
+## Technical Deep Dive: Design Philosophy Evolution
+
+### Phase 1-2: The Problem Statement
+
+The decomposition ideation identified a core issue: `mpsc_handoff` was a monolith mixing:
+- **Envelope encoding**: `{ [HANDOFF_FIELD] = continuation }`
+- **Queue mechanics**: MpscQueue push/pop
+- **Consumer lifecycle**: task spawn/cancel/await
+- **Segment contract**: handler, ensure_prepared, ensure_stopped
+
+The [`mpsc-decomposition.md`](/doc/archive/mpsc-decomposition.md) proposed 5 options for splitting these concerns. Option 3 (generic queue boundary factory) became the target.
+
+**Key insight from discovery**: The `handler_async` concept - segments could return coop awaitables (Task/Future), and runtime would detect by shape (`type(v)=="table" and type(v.await)=="function"`).
+
+### Phase 3-4: Three Transport Patterns
+
+The implementation created three distinct async strategies:
+
+#### MPSC Transport (`transport/mpsc.lua`)
+```lua
+-- Queue-based boundary
+-- 1. ensure_prepared: start queue consumer via consumer.lua
+-- 2. handler: wrap continuation in envelope, push to queue, return false
+-- 3. ensure_stopped: stop queue consumer, return awaitable
+
+handler = function(segment, run, runtime)
+  local continuation = prepare_continuation(segment, run, runtime.wrapped_handler)
+  local payload = { [segment.handoff_field] = continuation }
+  segment.queue:push(payload)
+  return false  -- stop current run path
+end
+```
+
+#### Safe-Task Transport (`transport/task.lua` mode="safe")
+```lua
+-- Buffered runner with wake signaling
+-- State: pending queue, wake Future, runner Task
+
+local function create_safe_runner(state)
+  return task.create(function()
+    while true do
+      if #state.pending == 0 then
+        state.wake = Future.new()
+        local ok = state.wake:pawait()  -- wait for signal
+        if not ok then return end
+      end
+      while #state.pending > 0 do
+        local continuation = table.remove(state.pending, 1)
+        local result = state.processor(continuation)
+        if result ~= false then
+          continuation:next(result)
+        end
+      end
+    end
+  end)
+end
+
+local function dispatch_safe(state, continuation)
+  table.insert(state.pending, continuation)
+  if state.waiting and state.wake and not state.wake.done then
+    state.wake:complete(true)  -- wake the runner
+  end
+end
+```
+
+**The safe-task invariant**: The runner never busy-waits. When idle, it blocks on `wake:pawait()`. When work arrives, dispatch completes the wake Future.
+
+#### Unsafe-Task Transport (`transport/task.lua` mode="unsafe")
+```lua
+-- Direct yield without buffering
+local function create_unsafe_runner(state)
+  return task.create(function()
+    while true do
+      local ok, continuation = task.pyield()  -- block until resumed with value
+      if not ok then return end
+      local result = state.processor(continuation)
+      if result ~= false then
+        continuation:next(result)
+      end
+    end
+  end)
+end
+
+-- Handler directly resumes runner with continuation
+handler = function(...)
+  runner:resume(continuation)  -- hand off via pyield
+  return false
+end
+```
+
+**The unsafe-task invariant**: Producer and consumer must coordinate timing. The runner is blocked on `pyield()`, handler resumes it with the continuation.
+
+### Phase 5: Transport Policy Abstraction
+
+The transport policy system unified all three under one interface:
+
+```lua
+-- Transport contract
+{
+  type = string,  -- "mpsc" | "safe_task" | "task"
+  
+  -- Lifecycle hooks (all optional)
+  configure_segment = function(segment) end,
+  ensure_prepared = function(segment, context, runtime) -> awaitable|nil end,
+  handler = function(segment, run, runtime) -> any end,
+  ensure_stopped = function(segment, context, runtime) -> awaitable|nil end,
+}
+
+-- Runtime context provided to transport
+runtime = {
+  wrapped_handler = function(run) end,  -- user's handler with define wrapping
+  handler_generator = function(seg, ctx, wrapped) end,  -- optional custom processor
+  transport_type = string,  -- transport identity
+}
+```
+
+The `build_segment(define, spec, transport)` function composed:
+1. Copy spec fields
+2. Wrap user lifecycle hooks
+3. Create runtime context
+4. Override segment.ensure_prepared to chain user + transport
+5. Override segment.handler to delegate to transport.handler
+6. Override segment.ensure_stopped to chain user + transport
+
+### Phase 6: Handler-First Evolution
+
+**The dispatch → handler rename** (05b0cfb) was pivotal:
+
+Before, transport had `dispatch(segment, run, continuation, runtime)`:
+- `prepare_continuation` was called in transport.lua
+- `dispatch` received the prepared continuation
+- Segment handler returned `stop_result_or_false(segment)`
+
+After, transport has `handler(segment, run, runtime)`:
+- Transport owns full handler logic
+- `prepare_continuation` moved into each transport
+- Continuation stored on `run.continuation` (single slot)
+
+This made transports self-contained. The contract became:
+
+```lua
+-- Transport handler contract
+function transport.handler(segment, run, runtime)
+  -- 1. Run wrapped handler to transform input
+  -- 2. Prepare continuation from run
+  -- 3. Dispatch continuation via transport mechanism
+  -- 4. Return false to stop current run path
+end
+```
+
+### Phase 7-9: Documentation and Discovery
+
+The continuation handoff contract was codified:
+
+```lua
+-- Core rule: stop now, continue later
+handler = function(run)
+  local continuation = create_continuation(run)
+  transport(continuation)  -- queue:push, pending insert, task resume
+  return false  -- stop this run path
+end
+
+-- Later, continuation resumes
+continuation:next(result)
+```
+
+The driver discovery revealed the cognitive cost: understanding mpsc required reading:
+1. `segment/mpsc.lua` - public API
+2. `define/mpsc.lua` - wrapper composition
+3. `transport/mpsc.lua` - actual behavior
+4. `consumer.lua` - queue consumer runtime
+
+This layering was "good architecture" but created a discovery burden.
+
+### Phase 10: Radical Simplification
+
+The simplification commit (a2639ab) deleted ~600 lines and replaced them with:
+
+**1. Awaitable-aware run:execute()**
+```lua
+function Run:execute()
+  -- ... segment loop ...
+  local result = handler(self)
+  
+  -- NEW: detect awaitable and spawn task
+  if cooputil.is_awaitable(result) then
+    run.task = coop.spawn(function()
+      local resolved = cooputil.await_one(result)
+      if resolved == false then
+        return run:_stop()
+      end
+      if resolved ~= nil then
+        run.input = resolved
+      end
+      run.pos = run.pos + 1
+      return run:execute()  -- continue in task context
+    end)
+    return run.task
+  end
+  
+  -- ... rest of sync path ...
+end
+```
+
+**2. Raw continuation push (no envelope)**
+```lua
+-- Before:
+local payload = { [HANDOFF_FIELD] = continuation }
+segment.queue:push(payload)
+
+-- After:
+segment.queue:push(continuation)
+```
+
+**3. queue_driver as ordinary segment**
+```lua
+-- queue_driver.lua - replaces consumer.lua
+function M.queue_driver(config)
+  return {
+    type = "queue_driver",
+    queue = config.queue,
+    ensure_prepared = function(self, context)
+      self._driver_task = coop.spawn(function()
+        while true do
+          local continuation = self.queue:pop()
+          if not continuation then break end
+          if type(continuation.next) == "function" then
+            continuation:next()
+          end
+        end
+      end)
+    end,
+    ensure_stopped = function(self)
+      if is_task_active(self._driver_task) then
+        self._driver_task:cancel()
+      end
+      return self._driver_task
+    end,
+    handler = function(run) return run.input end,
+  }
+end
+```
+
+**4. mpsc_handoff creates internal queue_driver**
+```lua
+function M.mpsc_handoff(config)
+  return {
+    type = "mpsc_handoff",
+    queue = config.queue or MpscQueue.new(),
+    handler = handoff_handler,  -- push raw continuation
+    ensure_prepared = function(self, context)
+      self._driver = queue_driver({ queue = self.queue })
+      self._driver:ensure_prepared(context)
+    end,
+    ensure_stopped = function(self, context)
+      return self._driver:ensure_stopped(context)
+    end,
+  }
+end
+```
+
+### Philosophy Shift: Explicit → Implicit
+
+| Dimension | Transport Layer (Before) | Awaitable Detection (After) |
+|-----------|---------------------------|----------------------------|
+| **Async opt-in** | Transport wrapper required | Return any awaitable |
+| **Transport identity** | Explicit `type` field | No categorization |
+| **Lifecycle structure** | `ensure_prepared`/`dispatch`/`ensure_stopped` | Ad-hoc per segment |
+| **Reusability** | Transport policies composable | Each segment self-contained |
+| **Cognitive load** | 4 files to understand mpsc | 1 file per segment |
+| **Envelope** | `{ [FIELD] = continuation }` | Raw continuation |
+| **Consumer management** | Centralized consumer.lua | Per-segment queue_driver |
+
+The simplification traded **architectural clarity** for **reduced indirection**.
+
 ## What Was Lost
 
 ### The Transport Policy Abstraction
