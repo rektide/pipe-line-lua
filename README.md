@@ -27,6 +27,17 @@ Registry (segment library)
 | **Registry** | Library of known segment types, indexed by name. Maintains an `emits_index` for lattice resolver dependency injection. Supports inheritance via `derive()`. |
 | **Fact** | Named capability tracked on line and/or run — the currency of the lattice resolver. Segments declare what they `want` and what they `emit`. |
 
+```mermaid
+flowchart LR
+    reg[Registry] -->|resolve by name| line[Line]
+    line -->|creates| run[Run]
+    run -->|walks| seg1[Segment 1]
+    seg1 --> seg2[Segment 2]
+    seg2 --> seg3[Segment N]
+    seg3 -->|pushes to| output[(Output Queue)]
+    output --> out[Outputter]
+```
+
 ## Installation
 
 Requires [coop.nvim](https://github.com/gregorias/coop.nvim).
@@ -132,6 +143,20 @@ app:info("async message")
 app:close():await(500, 10)
 ```
 
+```mermaid
+flowchart LR
+    subgraph sync[Sync — caller thread]
+        caller["app:info()"] --> ts[timestamper]
+        ts --> handoff[mpsc_handoff]
+    end
+    handoff -->|queue| boundary[(MpscQueue)]
+    subgraph async[Async — consumer task]
+        boundary --> ce[cloudevent]
+        ce --> mf[module_filter]
+        mf --> output[(Output)]
+    end
+```
+
 Handoff queue consumers start automatically via segment lifecycle (`ensure_prepared`). Disable with `autoStartConsumers = false` and call `line:ensure_prepared()` manually later.
 
 ### Custom Handoff
@@ -161,6 +186,23 @@ app:ensure_stopped()
 ```
 
 Each line owns a `stopped` future. `ensure_stopped()` collects segment stop handles, calls `segment.ensure_stopped(context)` on each, awaits all, and resolves `line.stopped`.
+
+```mermaid
+sequenceDiagram
+    participant caller as Caller
+    participant line as Line
+    participant seg as Segments
+    participant future as line.stopped
+
+    caller->>line: close()
+    line->>seg: ensure_prepared(context)
+    seg-->>line: awaitables
+    line->>seg: ensure_stopped(context)
+    seg-->>line: seg.stopped + awaitables
+    line->>line: await all
+    line->>future: complete()
+    future-->>caller: settled
+```
 
 For task transport segments, stop strategy is selected by `stop_type` ([`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md)):
 
@@ -199,7 +241,7 @@ Configuration:
 | `auto_fork` | Use segment `fork()` when available (default: `true`) |
 | `auto_instance` | Create thin runtime segment instances (default: `true`) |
 | `auto_completion_done_on_close` | Auto-emit completion `done` on close (default: `true`) |
-| `autoStartConsumers` | Auto-start handoff queue consumers (default: `true`) |
+| `auto_start_consumers` | Auto-start handoff queue consumers (default: `true`) |
 
 ### Child Lines and Forks
 
@@ -210,6 +252,18 @@ local auth = app:child("auth")
 local jwt = auth:child("jwt")
 
 jwt:full_source()  -- "myapp:auth:jwt"
+```
+
+```mermaid
+flowchart TB
+    app["app (source: myapp)<br/>pipe · output · registry · fact"]
+    auth["auth (source: auth)<br/>inherits everything"]
+    jwt["jwt (source: jwt)<br/>inherits everything"]
+    worker["worker (source: worker)<br/>owns pipe · output · fact"]
+
+    app -->|child| auth
+    auth -->|child| jwt
+    app -->|fork| worker
 ```
 
 Forks are independent — they own their own pipe, output, and fact:
@@ -278,6 +332,16 @@ When you need full independence — your own pipe, your own fact table — fork 
 
 ```lua
 local independent = run:fork(new_element)  -- owns everything, detached from line
+```
+
+```mermaid
+flowchart LR
+    run[Run pos=3] -->|"emit(A)"| cloneA[Clone A pos=4]
+    run -->|"emit(B)"| cloneB[Clone B pos=4]
+    run -->|"emit(C)"| cloneC[Clone C pos=4]
+    cloneA --> seg4a[Segment 4] --> seg5a[Segment 5] --> outA[(Output)]
+    cloneB --> seg4b[Segment 4] --> seg5b[Segment 5] --> outB[(Output)]
+    cloneC --> seg4c[Segment 4] --> seg5c[Segment 5] --> outC[(Output)]
 ```
 
 ### Ownership and Independence
