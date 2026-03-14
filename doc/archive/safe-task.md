@@ -387,7 +387,9 @@ end
 
 ### Phase 7-9: Documentation and Discovery
 
-The continuation handoff contract was codified:
+**Commits [`77b2b5f`, `8818622`, `ec034b7`]**: Documentation and driver discovery
+
+The continuation handoff contract was codified in [`77b2b5f`]:
 
 ```lua
 -- Core rule: stop now, continue later
@@ -411,7 +413,9 @@ This layering was "good architecture" but created a discovery burden.
 
 ### Phase 10: Radical Simplification
 
-The simplification commit (a2639ab) deleted ~600 lines and replaced them with:
+**Commit [`a2639ab`]**: "Simplify async: delete transport layer, make run:execute() awaitable-aware"
+
+This commit deleted ~600 lines and replaced them with:
 
 **1. Awaitable-aware run:execute()**
 ```lua
