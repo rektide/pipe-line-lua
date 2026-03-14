@@ -33,7 +33,7 @@ describe("pipe-line.consumer", function()
 
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue })
-			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
+			local l = make_line({ handoff, "marker" }, { auto_start_consumers = false })
 
 			consumer.ensure_queue_consumer(l, queue)
 
@@ -54,7 +54,7 @@ describe("pipe-line.consumer", function()
 
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue })
-			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
+			local l = make_line({ handoff, "marker" }, { auto_start_consumers = false })
 			local Run = require("pipe-line.run")
 
 			local r = Run.new(l, { auto_start = false, input = { message = "test" } })
@@ -78,7 +78,7 @@ describe("pipe-line.consumer", function()
 
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue, strategy = "clone" })
-			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
+			local l = make_line({ handoff, "marker" }, { auto_start_consumers = false })
 			local Run = require("pipe-line.run")
 
 			local r = Run.new(l, { auto_start = false, input = { message = "test" } })
@@ -106,7 +106,7 @@ describe("pipe-line.consumer", function()
 
 			local queue = MpscQueue.new()
 			local handoff = segment.mpsc_handoff({ queue = queue, strategy = "fork" })
-			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
+			local l = make_line({ handoff, "marker" }, { auto_start_consumers = false })
 			local Run = require("pipe-line.run")
 
 			local r = Run.new(l, { auto_start = false, input = { message = "test" } })

@@ -232,6 +232,17 @@ Control fields are run-level:
 | `mpsc_completion` | completion control signal (`hello`, `done`, `shutdown`) |
 | `mpsc_completion_name` | optional signal source/identity |
 
+Completion accounting state fields:
+
+| State field | Meaning |
+|-------------|---------|
+| `hello` | number of observed completion `hello` signals |
+| `done` | number of observed completion `done`/`shutdown` signals |
+| `settled` | `true` when `done >= hello` |
+| `signal` | last seen completion signal |
+| `name` | last seen completion signal name/source |
+| `stopped` | completion segment stop future resolved on settlement |
+
 Completion segment behavior:
 
 | Hook / path | Completion behavior |
@@ -241,6 +252,17 @@ Completion segment behavior:
 | `handler` | applies completion counters and resolves `state.stopped` when settled |
 
 This allows completion settlement to be modeled as regular run flow, not out-of-band queue metadata.
+
+Lifecycle relationship:
+
+- `ensure_prepared` and `ensure_stopped` provide protocol ingress (`hello`/`done`).
+- `handler(run)` applies control runs into completion state.
+- segment and line stop futures settle from observed protocol state, not from queue drains alone.
+
+Stop strategy note (TODO):
+
+- strategy-specific stop semantics (`stop_type`, `stop_drain`, `stop_immediate`) are ADR-defined and still being tightened in implementation/docs.
+- see [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md).
 
 Creating control runs:
 

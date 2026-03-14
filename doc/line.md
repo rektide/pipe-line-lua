@@ -106,6 +106,22 @@ Select runtime segment instances by:
 
 `opts.materialize` controls whether factories are materialized during selection.
 
+Example usage:
+
+```lua
+local all = line:select_segments()
+local completions = line:select_segments("completion")
+
+local later_handoffs = line:select_segments(function(seg, ctx)
+  return seg.type == "mpsc_handoff" and ctx.pos > 1
+end)
+```
+
+Predicate context fields:
+
+- `ctx.line`
+- `ctx.pos`
+
 ### `line:stopped_live(selector?)`
 
 Returns a future that settles when:
@@ -117,6 +133,14 @@ Returns a future that settles when:
 | line stop settled | line-level stop state is complete |
 
 This is the targeted wait primitive for type-based shutdown observation.
+
+Example:
+
+```lua
+local completion_stop = line:stopped_live("completion")
+line:close()
+completion_stop:await(1000, 10)
+```
 
 ## Lifecycle Orchestration
 
@@ -132,6 +156,11 @@ Context fields:
 | `pos` | segment position in pipe |
 | `segment` | runtime segment instance |
 | `force` | true for line lifecycle orchestration path |
+
+Run path note:
+
+- `Run:execute()` may also call `seg:ensure_prepared(...)` with run context (`run`, `line`, `pos`, `segment`) for just-in-time readiness.
+- line lifecycle path is still the authoritative whole-line orchestration path.
 
 ### `line:ensure_stopped()`
 
@@ -168,6 +197,17 @@ sequenceDiagram
     stopped-->>caller: settled
 ```
 
+### Stop Strategy Status (TODO)
+
+Task transport stop strategy (`stop_type`, `stop_drain`, `stop_immediate`) is defined in ADRs, but line-level docs and implementation wiring are still being tightened (TODO).
+
+Current intent:
+
+- `ensure_stopped` should wait according to selected strategy.
+- strategy-specific helpers/futures should be explicit and composable.
+
+See [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md).
+
 ## Async Boundary Integration
 
 Line can inject queue boundaries with:
@@ -184,7 +224,7 @@ Line can inject queue boundaries with:
 | stop | stops queue consumer path |
 | run execution | handler returns `false` after handoff; continuation run resumes later |
 
-Consumer auto-start control currently checks `line.autoStartConsumers` in transport mpsc implementation.
+Consumer auto-start control currently uses `line.auto_start_consumers` in transport mpsc implementation.
 
 ## Completion Protocol Integration
 
@@ -216,6 +256,16 @@ Use `child` for cheap contextual derivation, `fork` for execution independence.
 Inserted segments run `init` immediately in splice path.
 
 Runs remain position-correct via run-side splice journal sync (`run:sync()`).
+
+## Segment Instancing on Line
+
+Line owns runtime segment materialization policy through:
+
+- `auto_fork`
+- `auto_instance`
+- `auto_id`
+
+Line also runs `seg:init(context)` when materializing runtime segments. If `init` returns an awaitable and `seg.stopped` is unset, the awaitable is stored as `seg.stopped` for later stop orchestration.
 
 ## Relationship to Other Core Components
 

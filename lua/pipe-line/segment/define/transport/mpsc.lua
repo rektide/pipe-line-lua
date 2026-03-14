@@ -21,7 +21,7 @@ function M.new(config)
 		ensure_prepared = function(segment, context)
 			ensure_defaults(segment)
 			local line = context and context.line
-			if line and (context.force == true or line.autoStartConsumers ~= false) then
+			if line and (context.force == true or line.auto_start_consumers ~= false) then
 				return require("pipe-line.consumer").ensure_queue_consumer(line, segment.queue)
 			end
 			return nil

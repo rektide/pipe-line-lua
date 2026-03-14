@@ -157,7 +157,7 @@ flowchart LR
     end
 ```
 
-Handoff queue consumers start automatically via segment lifecycle (`ensure_prepared`). Disable with `autoStartConsumers = false` and call `line:ensure_prepared()` manually later.
+Handoff queue consumers start automatically via segment lifecycle (`ensure_prepared`). Disable with `auto_start_consumers = false` and call `line:ensure_prepared()` manually later.
 
 ### Custom Handoff
 

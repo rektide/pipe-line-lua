@@ -65,8 +65,8 @@ describe("pipe-line.mpsc", function()
 		app:close():await(200, 10)
 	end)
 
-	it("delays processing until explicit prepare_segments when autoStartConsumers is false", function()
-		local app = pipeline({ autoStartConsumers = false })
+	it("delays processing until explicit prepare_segments when auto_start_consumers is false", function()
+		local app = pipeline({ auto_start_consumers = false })
 		local seen = {}
 
 		app:addSegment("capture", function(run)
@@ -90,7 +90,7 @@ describe("pipe-line.mpsc", function()
 	end)
 
 	it("supports manual continuation by popping handoff queue payload", function()
-		local app = pipeline({ autoStartConsumers = false })
+		local app = pipeline({ auto_start_consumers = false })
 		local seen = false
 		local handoff = pipeline.segment.mpsc_handoff()
 
