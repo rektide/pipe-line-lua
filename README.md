@@ -76,7 +76,7 @@ Levels are numeric multiples of 10 (error=10, warn=20, info=30, log=40, debug=50
 
 ## Segment Contract
 
-The segment contract is centered on one run-facing verb ([`/doc/segment-authoring.md`](/doc/segment-authoring.md)):
+The segment contract is centered on one run-facing verb ([`/doc/segment.md`](/doc/segment.md)):
 
 ```lua
 handler(run)
@@ -117,7 +117,7 @@ registry:register("validator", {
 - **`false`** → stops this run path (message filtered)
 - **`nil`** → keeps current `run.input` unchanged
 
-Boundary segments typically return `false` after handing off continuation ownership, then call `continuation:next(...)` later. See [`/doc/segment-authoring.md`](/doc/segment-authoring.md) for the full async boundary handler contract.
+Boundary segments typically return `false` after handing off continuation ownership, then call `continuation:next(...)` later. See [`/doc/segment.md`](/doc/segment.md) for the full async boundary handler contract.
 
 ### Protocol-Aware Segments
 
@@ -125,7 +125,7 @@ Boundary segments typically return `false` after handing off continuation owners
 
 ## Async Model
 
-Async handoff is explicit: insert an `mpsc_handoff` segment where you want a queue boundary ([`/doc/async-handoff.md`](/doc/async-handoff.md)).
+Async handoff is explicit: insert an `mpsc_handoff` segment where you want a queue boundary ([`/doc/segment.md`](/doc/segment.md)).
 
 ```lua
 local app = pipeline({ source = "myapp" })
@@ -170,11 +170,11 @@ Strategy controls how the continuation run is created: `self` (default, zero-all
 
 ### Run-Owned Continuation
 
-Continuation tracking is run-centric. `mpsc_handoff` carries continuation runs across the queue boundary; it transports them, it does not redefine run semantics. If per-run continuation bookkeeping is needed, use `run.continuation` (single-slot is acceptable) ([`/doc/segment-instancing.md`](/doc/segment-instancing.md), [`/doc/segment-authoring.md`](/doc/segment-authoring.md)).
+Continuation tracking is run-centric. `mpsc_handoff` carries continuation runs across the queue boundary; it transports them, it does not redefine run semantics. If per-run continuation bookkeeping is needed, use `run.continuation` (single-slot is acceptable) ([`/doc/segment.md`](/doc/segment.md), [`/doc/run.md`](/doc/run.md)).
 
 ## Stop Model
 
-Line lifecycle orchestration follows a prepare → stop sequence ([`/doc/lifecycle.md`](/doc/lifecycle.md)):
+Line lifecycle orchestration follows a prepare → stop sequence ([`/doc/line.md`](/doc/line.md)):
 
 ```lua
 -- High-level shutdown:
@@ -211,7 +211,7 @@ For task transport segments, stop strategy is selected by `stop_type` ([`/doc/ad
 
 ### Waiting by Segment Type
 
-Use selector-based live stop handles for targeted waits ([`/doc/selecting.md`](/doc/selecting.md)):
+Use selector-based live stop handles for targeted waits ([`/doc/line.md`](/doc/line.md)):
 
 ```lua
 local completion_stopped = app:stopped_live("completion")
@@ -414,7 +414,7 @@ resolver.resolve_line(my_line)  -- modifies line.pipe directly
 
 ## Segment Instancing
 
-Registry entries are shared prototypes. The line runtime creates per-line instances automatically via metatable delegation, controlled by `auto_fork`, `auto_instance`, and `auto_id` ([`/doc/segment-instancing.md`](/doc/segment-instancing.md), [`/doc/metatables.md#segment-instance-delegation`](/doc/metatables.md#segment-instance-delegation)).
+Registry entries are shared prototypes. The line runtime creates per-line instances automatically via metatable delegation, controlled by `auto_fork`, `auto_instance`, and `auto_id` ([`/doc/line.md`](/doc/line.md), [`/doc/segment.md`](/doc/segment.md), [`/doc/metatables.md#segment-instance-delegation`](/doc/metatables.md#segment-instance-delegation)).
 
 Each runtime segment table exposes:
 
@@ -423,7 +423,7 @@ Each runtime segment table exposes:
 
 ## Completion Protocol
 
-Implements the [mpsc-completion](https://github.com/rektide/mpsc-completion) protocol for coordinating async pipeline shutdown ([`/doc/completion-protocol.md`](/doc/completion-protocol.md)):
+Implements the [mpsc-completion](https://github.com/rektide/mpsc-completion) protocol for coordinating async pipeline shutdown ([`/doc/segment.md`](/doc/segment.md), [`/doc/run.md`](/doc/run.md)):
 
 ```lua
 local protocol = require("pipe-line.protocol")
@@ -535,13 +535,10 @@ Messages are Lua tables with conventional fields:
 
 Core documentation:
 
-- Segment authoring and hook contracts: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Async boundary handler contract: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Segment instancing and selectors: [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
-- Selector utilities and live stop waiting: [`/doc/selecting.md`](/doc/selecting.md)
-- Line lifecycle orchestration: [`/doc/lifecycle.md`](/doc/lifecycle.md)
-- Async queue boundaries: [`/doc/async-handoff.md`](/doc/async-handoff.md)
-- Completion control protocol: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
+- Segment model and async boundary contract: [`/doc/segment.md`](/doc/segment.md)
+- Run execution and continuation flow: [`/doc/run.md`](/doc/run.md)
+- Line lifecycle and selectors: [`/doc/line.md`](/doc/line.md)
+- Registry resolution and dependency metadata: [`/doc/registry.md`](/doc/registry.md)
 - Metatable chains and ownership model: [`/doc/metatables.md`](/doc/metatables.md)
 
 Architecture decisions:

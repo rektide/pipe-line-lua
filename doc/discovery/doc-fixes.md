@@ -27,9 +27,9 @@ The consumer module has been substantially rewritten. The documented API surface
 - **References to `protocol.isShutdown`** — field does not exist with that name; protocol checking is `protocol.is_protocol(run)` from [`/lua/pipe-line/segment/completion.lua`](/lua/pipe-line/segment/completion.lua).
 - **`pipe-line.drivers` module reference** — should be `pipe-line.driver` (singular).
 
-**Recommendation**: Rewrite entirely or archive to `/doc/archive/`. Current consumer behavior is simple enough to cover in [`/doc/async-handoff.md`](/doc/async-handoff.md).
+**Recommendation**: Rewrite entirely or archive to `/doc/archive/`. Current consumer behavior is simple enough to cover in [`/doc/segment.md`](/doc/segment.md) and [`/doc/line.md`](/doc/line.md).
 
-## [`/doc/async-handoff.md`](/doc/async-handoff.md)
+## Legacy: async handoff content now folded into [`/doc/segment.md`](/doc/segment.md)
 
 ### Minor code style inconsistencies
 
@@ -40,7 +40,7 @@ The consumer module has been substantially rewritten. The documented API surface
 
 [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua) exposes `line:addHandoff(pos, config)` as a convenience for inserting handoff boundaries. This isn't documented anywhere.
 
-## [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
+## Legacy: completion protocol content now folded into [`/doc/segment.md`](/doc/segment.md) and [`/doc/run.md`](/doc/run.md)
 
 ### Field name mismatch
 
@@ -50,7 +50,7 @@ The consumer module has been substantially rewritten. The documented API surface
 
 - Document describes `ensure_prepared` emitting a `hello` but doesn't mention this only happens once per instance (`self._hello_emitted` guard). Worth noting for authors expecting multiple prepare cycles.
 
-## [`/doc/lifecycle.md`](/doc/lifecycle.md)
+## Legacy: lifecycle content now folded into [`/doc/line.md`](/doc/line.md)
 
 ### `prepare_segments()` alias noted but not deprecated
 
@@ -78,19 +78,19 @@ The consumer module has been substantially rewritten. The documented API surface
 
 - References `/doc/discovery/adr-async-boundary-segments.md` which exists, and `/doc/discovery/mpsc-decomposition.md` which does not exist at that path (it's at [`/doc/archive/mpsc-decomposition.md`](/doc/archive/mpsc-decomposition.md)).
 
-## [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
+## Legacy: segment authoring content now folded into [`/doc/segment.md`](/doc/segment.md)
 
 ### Accurate — no issues found
 
 The described contract matches current code. `handler(run)`, lifecycle hooks, protocol pass-through via `define()`, return semantics, and continuation model are all verified against the implementation.
 
-## [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
+## Legacy: segment instancing content now folded into [`/doc/line.md`](/doc/line.md) and [`/doc/segment.md`](/doc/segment.md)
 
 ### Accurate — no issues found
 
 Instancing controls (`auto_id`, `auto_fork`, `auto_instance`), identity model (`type`/`id`), lifecycle interaction with `init`, and continuation ownership are all consistent with [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua).
 
-## [`/doc/selecting.md`](/doc/selecting.md)
+## Legacy: selecting content now folded into [`/doc/line.md`](/doc/line.md)
 
 ### Accurate — no issues found
 

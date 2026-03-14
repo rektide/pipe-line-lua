@@ -24,8 +24,9 @@ When transport policy mutates spec shape (`configure_segment`) and uses a separa
 
 Related docs:
 
-- [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
+- [`/doc/segment.md`](/doc/segment.md)
+- [`/doc/line.md`](/doc/line.md)
+- [`/doc/run.md`](/doc/run.md)
 
 ## Core contract
 

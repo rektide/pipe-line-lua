@@ -43,12 +43,12 @@ This note proposes a fresh structure for [`/README.md`](/README.md), centered on
 
 Use these as direct references from README sections:
 
-- Segment contract: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Continuation semantics: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Async handoff usage: [`/doc/async-handoff.md`](/doc/async-handoff.md)
-- Lifecycle and stop orchestration: [`/doc/lifecycle.md`](/doc/lifecycle.md)
-- Completion semantics: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
-- Segment instancing model: [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
+- Segment contract: [`/doc/segment.md`](/doc/segment.md)
+- Continuation semantics: [`/doc/run.md`](/doc/run.md)
+- Async handoff usage: [`/doc/segment.md`](/doc/segment.md)
+- Lifecycle and stop orchestration: [`/doc/line.md`](/doc/line.md)
+- Completion semantics: [`/doc/segment.md`](/doc/segment.md)
+- Segment instancing model: [`/doc/line.md`](/doc/line.md)
 - ADR index: [`/doc/adr/README.md`](/doc/adr/README.md)
 - Transport policy decision: [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md)
 - Stop strategy decision: [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md)
@@ -65,11 +65,11 @@ Use these as direct references from README sections:
 ```md
 ## Docs Map
 
-- Segment Contract: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Async Boundary Handler Contract: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Async Boundary Usage: [`/doc/async-handoff.md`](/doc/async-handoff.md)
-- Lifecycle + Stop Strategy: [`/doc/lifecycle.md`](/doc/lifecycle.md)
-- Completion Protocol: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
+- Segment Contract: [`/doc/segment.md`](/doc/segment.md)
+- Async Boundary Handler Contract: [`/doc/segment.md`](/doc/segment.md)
+- Async Boundary Usage: [`/doc/segment.md`](/doc/segment.md)
+- Lifecycle + Stop Strategy: [`/doc/line.md`](/doc/line.md)
+- Completion Protocol: [`/doc/segment.md`](/doc/segment.md)
 - ADR Index: [`/doc/adr/README.md`](/doc/adr/README.md)
 ```
 

@@ -6,12 +6,10 @@ These define the current architecture. Read these to understand pipe-line.
 
 | Document | Created | Description |
 |----------|---------|-------------|
-| [`segment-authoring.md`](/doc/segment-authoring.md) | 2026-02-26 | Segment model guide: contract, sync/async boundary handler behavior, lifecycle hooks, protocol pass-through via `define()` |
-| [`segment-instancing.md`](/doc/segment-instancing.md) | 2026-02-26 | How registry prototypes become per-line runtime instances; `auto_fork`/`auto_instance`/`auto_id`; continuation ownership |
-| [`selecting.md`](/doc/selecting.md) | 2026-02-26 | `line:select_segments()` and `line:stopped_live()` for runtime segment queries |
-| [`lifecycle.md`](/doc/lifecycle.md) | 2026-02-26 | Line lifecycle orchestration: `ensure_prepared`, `ensure_stopped`, `close`, hook context shape, strategy-specific stop |
-| [`async-handoff.md`](/doc/async-handoff.md) | 2026-02-26 | Explicit async boundaries via `mpsc_handoff`; custom handoff; manual continuation mode |
-| [`completion-protocol.md`](/doc/completion-protocol.md) | 2026-02-26 | Completion control runs, state accounting, completion segment stop behavior |
+| [`segment.md`](/doc/segment.md) | 2026-03-14 | Segment model guide: handler contract, async boundary handoff, completion protocol behavior |
+| [`run.md`](/doc/run.md) | 2026-03-14 | Run execution algorithm, continuation flow, fan-out and ownership controls |
+| [`line.md`](/doc/line.md) | 2026-03-14 | Line lifecycle orchestration, selection APIs, instancing edge semantics, shutdown model |
+| [`registry.md`](/doc/registry.md) | 2026-03-14 | Segment registry resolution, derivation, emits index and resolver metadata |
 | [`metatables.md`](/doc/metatables.md) | 2026-03-13 | All metatable chains: line→parent, run→line, clone→parent run, segment instances, registry derivation, fact overlays, ownership semantics |
 
 ## Architecture Decision Records

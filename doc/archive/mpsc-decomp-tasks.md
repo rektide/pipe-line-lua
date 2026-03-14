@@ -1,6 +1,6 @@
 # MPSC Decomposition Tasks
 
-> Superseded by: [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md) and [`/doc/segment-authoring.md`](/doc/segment-authoring.md).
+> Superseded by: [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md) and [`/doc/segment.md`](/doc/segment.md).
 >
 > This task breakdown assumes `handler_async` and dispatch vocabulary that are no longer part of the current segment contract.
 

@@ -9,11 +9,10 @@ Use these first. They define current contract and direction.
 - ADR index and scope: [`/doc/adr/README.md`](/doc/adr/README.md)
 - Transport contract: [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md)
 - Stop strategy contract: [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md)
-- Segment contract: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Segment instancing model: [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
-- Line lifecycle orchestration: [`/doc/lifecycle.md`](/doc/lifecycle.md)
-- Async handoff usage: [`/doc/async-handoff.md`](/doc/async-handoff.md)
-- Completion protocol: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
+- Segment contract and async/completion handoff model: [`/doc/segment.md`](/doc/segment.md)
+- Run execution and continuation flow: [`/doc/run.md`](/doc/run.md)
+- Line lifecycle orchestration and selection: [`/doc/line.md`](/doc/line.md)
+- Registry model and emits index usage: [`/doc/registry.md`](/doc/registry.md)
 
 ## Secondary Sources (Exploratory / Historical)
 
@@ -47,11 +46,10 @@ Keep README short, stable, and contract-focused.
 
 At minimum, README should point readers to:
 
-- [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
-- [`/doc/lifecycle.md`](/doc/lifecycle.md)
-- [`/doc/async-handoff.md`](/doc/async-handoff.md)
-- [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
+- [`/doc/segment.md`](/doc/segment.md)
+- [`/doc/run.md`](/doc/run.md)
+- [`/doc/line.md`](/doc/line.md)
+- [`/doc/registry.md`](/doc/registry.md)
 - [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md)
 - [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md)
 
