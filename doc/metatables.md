@@ -11,7 +11,7 @@ References:
 - [`/lua/pipe-line/inherit.lua`](/lua/pipe-line/inherit.lua)
 - [`/lua/pipe-line/init.lua`](/lua/pipe-line/init.lua)
 
-## Why Metatables Matter Here
+## Cheap Derivation
 
 pipe-line is designed around cheap derivation. A child line doesn't copy its parent's pipe, output queue, registry, or config — it just points at the parent via `__index` and reads through. A run doesn't copy the line's fields — it reads through to them. A cloned run doesn't copy the parent run's fields — it reads through to those too.
 
@@ -19,7 +19,7 @@ This means:
 
 - **Child lines are free.** `app:child("auth")` creates a table with one field (`source = "auth"`) and a metatable pointer. Everything else — pipe, output, filter, registry — is inherited.
 - **Runs are free.** A run is a small table with `input`, `pos`, `line`, and a metatable. `run.filter` resolves through the metatable to `line.filter` without anyone having to pass it.
-- **Segments read from runs reads from lines.** When a segment handler reads `run.source`, it traverses: run → line → parent line → ... until it finds a `source` field. No plumbing, no argument passing.
+- **Segments read from runs read from lines.** When a segment handler reads `run.source`, it traverses: run → line → parent line → ... until it finds a `source` field. No plumbing, no argument passing.
 - **Ownership is opt-in.** When you need isolation, `rawset` a field on the child to shadow the parent. Until then, you share for free.
 
 The design trades predictability for efficiency: you need to understand that `self.foo` might come from three levels up the chain, and that `rawget(self, "foo")` is how you ask "does *this specific table* own `foo`?"
@@ -33,7 +33,7 @@ The design trades predictability for efficiency: you need to understand that `se
 | **Run instance** | `__index` function | Own fields → `Run` methods → `line[k]` | [`run.lua:280`](/lua/pipe-line/run.lua) |
 | **Cloned run** | `__index` function | Own fields → `Run` methods → parent run's `rawget` fields → `parent_run.line[k]` | [`run.lua:229`](/lua/pipe-line/run.lua) |
 | **Run constructor** | `__call` → `Run.new(line, config)` | — | [`run.lua:295`](/lua/pipe-line/run.lua) |
-| **Run-local fact table** | `__index` → `line.fact` | Own fact fields → line's fact table | [`run.lua:173`](/lua/pipe-line/run.lua) |
+| **Run-local fact** | `__index` → `line.fact` | Own fact fields → line's fact table | [`run.lua:173`](/lua/pipe-line/run.lua) |
 | **Segment instance** | `__index` → prototype table | Own fields → registry prototype | [`line.lua:100`](/lua/pipe-line/line.lua) |
 | **Pipe instance** | `PIPE_MT.__index = Pipe` | Array entries + own fields → `Pipe` methods | [`pipe.lua:56`](/lua/pipe-line/pipe.lua) |
 | **Pipe constructor** | `__call` → `M.new(entry)` | — | [`pipe.lua:59`](/lua/pipe-line/pipe.lua) |
@@ -42,7 +42,9 @@ The design trades predictability for efficiency: you need to understand that `se
 | **Multi-parent child** | `__index` function | Own fields → each parent in left-to-right order | [`inherit.lua:23`](/lua/pipe-line/inherit.lua) |
 | **Module entry point** | `__call` → creates Line with default registry | — | [`init.lua:51`](/lua/pipe-line/init.lua) |
 
-## The Line Chain
+## Line Inheritance
+
+### Line Parent Chain
 
 When you create `app:child("auth"):child("jwt")`, you get three tables connected by metatables:
 
@@ -70,6 +72,8 @@ nil
 ```
 
 `jwt.pipe` resolves to `app.pipe`. `jwt.output` resolves to `app.output`. `jwt.source` resolves to `"jwt"` — its own local field. `jwt:full_source()` walks `rawget` up the parent chain to build `"myapp:auth:jwt"`.
+
+### Two-Phase Index
 
 The `LINE_MT.__index` function is not a simple table lookup — it's a two-phase function ([`line.lua:178`](/lua/pipe-line/line.lua)):
 
@@ -99,7 +103,9 @@ local child = app:child("thin")
 local forked = app:fork("independent")
 ```
 
-## The Run Chain
+## Run Read-Through
+
+### Run to Line
 
 A run's metatable is a function that checks `Run` methods first, then falls through to the line:
 
@@ -113,7 +119,7 @@ end })
 
 This is what makes `run.filter`, `run.source`, `run.registry`, and every other line field available to segments without any explicit passing. A segment handler receives `run` and can read anything from the line — or from the line's parent, or grandparent — transparently.
 
-### Cloned Run Chain
+### Cloned Run to Parent Run
 
 `run:clone(new_input)` creates a child run with a three-level `__index`:
 
@@ -131,7 +137,7 @@ end })
 
 This means a cloned run inherits any owned fields from its parent run — like a custom `pipe` or `fact` that the parent took ownership of — before falling through to the line. A run that called `own("pipe")` passes that owned pipe to its clones automatically.
 
-### Run-Local Fact
+### Run-Local Fact Overlay
 
 `run:set_fact("name")` lazily creates a per-run fact table with an `__index` to `line.fact`:
 
@@ -145,7 +151,7 @@ After this, `run.fact.name` reads from the run's own table, but `run.fact.time` 
 
 `run:own("fact")` collapses this into a plain table by snapshotting all visible facts — breaking the `__index` link permanently.
 
-## The Segment Instance Chain
+## Segment Instance Delegation
 
 Registry prototypes are shared across all lines. When a line resolves a segment name, it creates a per-line instance via `__index`:
 
@@ -157,9 +163,11 @@ instance._pipe_line_is_instance = true
 
 The instance starts empty. It inherits `handler`, `wants`, `emits`, `init`, `ensure_prepared`, `ensure_stopped`, and everything else from the prototype. Per-instance state (set during `init` or at runtime) lives on the instance table and shadows the prototype.
 
+### Segment Fork Path
+
 If the prototype has a `fork()` method and `auto_fork` is enabled, the line calls `prototype:fork()` instead — giving the segment control over how its instance is created. If `fork()` returns a new table, that table is used directly (after identity assignment). If it returns the prototype itself, the thin metatable instance is used as fallback.
 
-## The Registry Chain
+## Registry Derivation
 
 `registry:derive()` creates a child registry via `inherit.derive`, which sets `__index` to the parent:
 
@@ -173,28 +181,53 @@ child = setmetatable({
 }, { __index = parent_registry })
 ```
 
+### Registry Resolution Walk
+
 Resolution walks the chain explicitly — `registry:resolve(name)` checks `self.segment`, then `rawget(self, name)`, then calls `parent:resolve(name)` if a parent exists ([`registry.lua:43`](/lua/pipe-line/registry.lua)). The `emits_index` has its own merging logic via `get_emits_index()` that combines parent and child indexes with caching ([`registry.lua:118`](/lua/pipe-line/registry.lua)).
 
 ## The `inherit` Module
 
 [`/lua/pipe-line/inherit.lua`](/lua/pipe-line/inherit.lua) provides the generic utilities that several of the above chains are built on:
 
-- **`derive(parent, child)`** — sets `child.__index = parent`. Used by registry derivation.
-- **`derive_multi(parents, child)`** — sets `child.__index` to a function that searches parents left-to-right. Available for multi-parent composition.
-- **`walk_field(obj, field)`** — walks `__index` tables (not functions) looking for a `rawget` match. Used by `line:resolve_segment()` to find segment definitions scoped to specific lines.
-- **`walk_predicate(obj, predicate)`** — same walk, but calls a predicate at each level. Cycle-safe.
-- **`get_parent(obj)`** — returns the full parent chain as an array.
+### `derive(parent, child)`
 
-## Ownership via `rawget` / `rawset`
+Sets `child.__index = parent`. Used by registry derivation. The simplest form of single-parent inheritance.
 
-The metatable chains make field access transparent, but sometimes you need to know *where* a value lives:
+### `derive_multi(parents, child)`
 
-- **`rawget(self, key)`** — "does this specific table own this field?" Used extensively in line construction, segment instancing, and run cloning to distinguish owned vs inherited values.
-- **`rawset(self, key, value)`** — "set this field on this specific table, shadowing whatever the metatable would return." Used by `run:own()`, `run:set_fact()`, and `line:addSegment()`.
+Sets `child.__index` to a function that searches parents left-to-right. Available for multi-parent composition.
 
-The pattern is: read through metatables by default (cheap, shared), `rawset` when you need local ownership (isolation), `rawget` when you need to distinguish local from inherited (decisions).
+### `walk_field(obj, field)`
 
-## When Chains Break
+Walks `__index` tables (not functions) looking for a `rawget` match. Used by `line:resolve_segment()` to find segment definitions scoped to specific lines in the parent chain.
+
+### `walk_predicate(obj, predicate)`
+
+Same walk as `walk_field`, but calls a predicate at each level. Returns the first non-nil result. Cycle-safe via visited-set tracking.
+
+### `get_parent(obj)`
+
+Returns the full parent chain as an array. Cycle-safe.
+
+## Ownership and Shadowing
+
+### Read-Through by Default
+
+The metatable chains make field access transparent. When you read `run.filter` or `child_line.pipe`, Lua walks the `__index` chain until it finds a value. This is the default: everything is shared, nothing is copied.
+
+### `rawget` — Checking Ownership
+
+`rawget(self, key)` asks "does *this specific table* own this field?" without triggering `__index`. Used extensively in line construction, segment instancing, and run cloning to distinguish owned vs inherited values.
+
+### `rawset` — Taking Ownership
+
+`rawset(self, key, value)` sets a field on a specific table, shadowing whatever the metatable would return. Used by `run:own()`, `run:set_fact()`, and `line:addSegment()`.
+
+### The Pattern
+
+Read through metatables by default (cheap, shared). `rawset` when you need local ownership (isolation). `rawget` when you need to distinguish local from inherited (decisions about behavior).
+
+## Breaking Chains
 
 Ownership operations intentionally break metatable chains:
 
