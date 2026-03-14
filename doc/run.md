@@ -15,20 +15,25 @@ If you want to understand how a message moves through the system in exact order,
 | Protocol control runs | [`/lua/pipe-line/segment/completion.lua`](/lua/pipe-line/segment/completion.lua) | Shows run-field protocol controls consumed by completion segment |
 | Metatable lookup behavior | [`/doc/metatables.md`](/doc/metatables.md) | Explains why run can read line-owned fields transparently |
 
-## What a Run Owns vs Reads
+## Run at a Glance
 
-| Access surface | Field / behavior | Notes |
-|----------------|------------------|-------|
-| run-owned | `type = "run"` | Identity marker |
-| run-owned | `line` | Owning line reference |
-| run-owned | `pipe` | Active pipe reference for this run |
-| run-owned | `pos` | Cursor position in pipe |
-| run-owned | `input` | Current element/payload |
-| run-owned | `_rev` | Pipe revision snapshot used by `sync()` |
-| read-through | `run[k] -> line[k]` | If key is not run-owned, lookup falls through to line |
-| practical effect | `run.source`, `run.filter`, `run.registry`, etc. | Handler can read line-scoped values without explicit argument plumbing |
+| Surface | What it does | Why it matters |
+|---------|--------------|----------------|
+| `Run.new(line, config)` | Creates run object and optionally starts execution | Entry point for per-message execution context |
+| `run:execute()` | Main pipeline loop | Defines exact segment-walking behavior |
+| `run:next(element?)` | Continue from current cursor + 1 | Core primitive for continuation re-entry |
+| `run:emit(element, strategy?)` | Fan-out convenience | Produces additional run paths cheaply |
+| `run:clone(new_input)` | Lightweight child run | Shares parent/line state where safe |
+| `run:fork(new_input?)` | More independent child run | Breaks ownership for mutable fields |
+| `run:sync()` | Reconcile cursor with splice journal | Keeps cursor correct during dynamic pipe mutation |
+| `run:own(field)` | Take local ownership of field | Escape read-through when isolation is needed |
+| `run.continuation` | Optional run-owned continuation tracking field | Supports async boundary handoff bookkeeping |
 
-Related model details: [`/doc/metatables.md`](/doc/metatables.md).
+## What a Run Actually Owns
+
+A run typically owns `type`, `line`, `pipe`, `pos`, `input`, and `_rev`. Everything else is resolved through metatable lookup.
+
+That means handlers can read values such as `run.source`, `run.filter`, and `run.registry` without explicit plumbing because missing run keys fall through to line keys. See [`/doc/metatables.md`](/doc/metatables.md) for full chain behavior.
 
 ## Creation and Startup
 
@@ -47,36 +52,31 @@ local run = Run(line, { input = payload, auto_start = false })
 
 Startup behavior:
 
-| `auto_start` value | Startup behavior |
-|--------------------|------------------|
-| omitted / `true` | `run:execute()` runs immediately |
-| `false` | run is created without immediate execution |
+- default: `auto_start` enabled (`run:execute()` runs immediately)
+- `auto_start = false`: create run object without immediate execution
 
 ## Execution Algorithm (`run:execute()`)
 
 `run:execute()` is the core loop.
 
-| Step | Operation | Why |
-|------|-----------|-----|
-| 1 | `run:sync()` | Reconcile cursor with splice journal changes |
-| 2 | read current pipe entry | Identify next segment to execute |
-| 3 | resolve/materialize segment | Convert names/factories into executable segment form |
-| 4 | call `seg:ensure_prepared(context)` if present | Ensure segment-side readiness before handler call |
-| 5 | resolve and invoke `handler(run)` | Execute per-message segment logic |
-| 6 | apply return semantics | Decide stop/update/keep behavior for run state |
-| 7 | increment `run.pos` and sync again | Advance cursor safely across potential pipe mutations |
-| 8 | on completion, push final `run.input` to output if non-`nil` | Emit terminal output |
-| 9 | return final `run.input` | Provide caller-visible result |
+1. `run:sync()` reconciles cursor position against pipe splice journal.
+2. Current pipe entry is read and resolved (name lookup, factory materialization, or direct table/function use).
+3. If the segment exposes `ensure_prepared(context)`, it is called for this run/position before handler execution.
+4. The segment handler is resolved and invoked as `handler(run)`.
+5. Handler return is applied to run state using return semantics below.
+6. Cursor advances (`run.pos = run.pos + 1`) and `run:sync()` runs again.
+7. When cursor moves past end, final non-`nil` input is pushed to output queue.
+8. Final `run.input` is returned.
+
+The loop is simple by design: resolve, prepare, execute, apply result, advance.
 
 ## Handler Return Semantics (Run Interpretation)
 
 Run-level interpretation is strict and simple:
 
-| Handler result | Run behavior |
-|----------------|--------------|
-| `false` | stop this run path immediately |
-| non-`nil` (except `false`) | replace `run.input` |
-| `nil` | preserve existing `run.input` |
+- `false`: stop this run path immediately.
+- non-`nil` (except `false`): replace `run.input`.
+- `nil`: preserve existing `run.input`.
 
 This is the core contract that async boundary segments rely on.
 
@@ -84,24 +84,20 @@ This is the core contract that async boundary segments rely on.
 
 Async boundary handlers use stop-now/continue-later behavior:
 
-| Phase | Action |
-|-------|--------|
-| handoff | boundary `handler(run)` transfers continuation ownership (queue/task/pending) |
-| inline stop | boundary returns `false` |
-| deferred resume | continuation run later calls `:next(...)` from downstream position |
+1. boundary `handler(run)` transfers continuation ownership to async transport (queue/task/pending)
+2. boundary returns `false` to stop inline path now
+3. later, continuation run calls `:next(...)` to resume downstream
 
 Why this matters:
 
-| Guarantee | Outcome |
-|-----------|---------|
-| no double flow | Avoids inline path continuing while async path also resumes later |
-| explicit continuation | Keeps run control semantics deterministic |
+- it prevents double flow (inline path continuing while async path also resumes)
+- it keeps run control deterministic (all deferred progress is explicit `:next(...)`)
 
 Continuation tracking:
 
-| Field | Ownership | Shape |
-|-------|-----------|-------|
-| `run.continuation` | run-owned | flexible; single-slot is acceptable |
+- ownership is run-centric
+- `run.continuation` is the tracking field
+- single-slot continuation tracking is acceptable
 
 Related boundary usage: [`/doc/segment.md`](/doc/segment.md), [`/doc/line.md`](/doc/line.md).
 
@@ -109,11 +105,9 @@ Related boundary usage: [`/doc/segment.md`](/doc/segment.md), [`/doc/line.md`](/
 
 `run:next()` advances cursor by one and continues execution.
 
-| Case | Behavior |
-|------|----------|
-| `run:next(element)` | replace `run.input`, then advance |
-| `run:next()` | keep current `run.input`, then advance |
-| cursor at end | push to output directly |
+- `run:next(element)` replaces `run.input` before advancing
+- `run:next()` advances with current input unchanged
+- if already at end, it pushes to output directly
 
 This is the primitive used by continuation runs to re-enter pipeline flow.
 
@@ -121,25 +115,18 @@ This is the primitive used by continuation runs to re-enter pipeline flow.
 
 ### `run:emit(element, strategy?)`
 
-| Property | Behavior |
-|----------|----------|
-| purpose | fan-out convenience |
-| mechanism | creates continuation run via strategy and immediately `:next()` it |
+`run:emit` is fan-out convenience. It creates a continuation run via strategy and immediately `:next()`s it.
 
 Strategies:
 
-| Strategy | Behavior | Cost profile |
-|----------|----------|--------------|
-| `self` | mutate and continue same run path | lowest overhead |
-| `clone` | lightweight child run with shared ownership model | low overhead |
-| `fork` | more independent run context | higher overhead |
+- `self`: mutate and continue same run path (lowest overhead)
+- `clone`: lightweight child run with shared ownership (low overhead)
+- `fork`: more independent run context (higher overhead)
 
 ### `run:clone(new_input)` and `run:fork(new_input?)`
 
-| Method | Behavior |
-|--------|----------|
-| `run:clone(new_input)` | creates lightweight child run with parent read-through; child owns `input` and `pos` |
-| `run:fork(new_input?)` | clone plus ownership break for key fields (`own("pipe")`, `own("fact")`) |
+- `run:clone(new_input)` creates a lightweight child run with parent read-through; child owns `input` and `pos`.
+- `run:fork(new_input?)` is clone plus ownership break for key fields (`own("pipe")`, `own("fact")`).
 
 ## Pipe Synchronization (`run:sync()`)
 
@@ -153,10 +140,8 @@ This allows in-flight runs to survive dynamic pipe mutation (for example resolve
 
 Special handling:
 
-| Field | `own(field)` behavior |
-|-------|------------------------|
-| `"pipe"` | clones current pipe for independent mutation |
-| `"fact"` | snapshots visible fact state into run-owned table |
+- `own("pipe")` clones current pipe for independent mutation.
+- `own("fact")` snapshots visible fact state into run-owned table.
 
 `run:set_fact(name, value?)` lazily creates run-local fact overlay with fallback to line fact.
 
@@ -166,11 +151,9 @@ Not every run carries a normal data payload. Protocol runs use run fields as con
 
 Completion protocol fields:
 
-| Field | Meaning |
-|-------|---------|
-| `pipe_line_protocol = true` | marks run as protocol/control run |
-| `mpsc_completion` | control signal (`hello`, `done`, `shutdown`) |
-| `mpsc_completion_name` | optional identity/attribution for control signal |
+- `pipe_line_protocol = true`: marks run as protocol/control run
+- `mpsc_completion`: control signal (`hello`, `done`, `shutdown`)
+- `mpsc_completion_name`: optional attribution/identity
 
 These are interpreted by protocol-aware segments (not by run core itself).
 
@@ -178,18 +161,16 @@ These are interpreted by protocol-aware segments (not by run core itself).
 
 When run behavior feels wrong, check:
 
-| Checkpoint | Why |
-|------------|-----|
-| handler returns `false` at async handoff boundaries | prevents duplicate inline + async continuation flow |
-| continuation resumes exactly once | avoids duplicate downstream execution |
-| `run:sync()` behavior after pipe splices | catches cursor drift after runtime pipe mutation |
-| `run.input` update/keep/stop semantics | validates handler return contract usage |
-| output queue receives final non-`nil` payload | validates terminal output push path |
+1. handler returns `false` at async handoff boundaries.
+2. continuation resumes exactly once.
+3. `run:sync()` behavior after runtime pipe splices.
+4. `run.input` update/keep/stop semantics match handler returns.
+5. output queue receives final non-`nil` payload.
 
 ## Relationship to Other Core Components
 
-| Component | Relationship to Run |
-|-----------|---------------------|
-| [`/doc/line.md`](/doc/line.md) | creates runs and orchestrates lifecycle around execution |
-| [`/doc/segment.md`](/doc/segment.md) | defines handler/lifecycle semantics that run executes |
-| [`/doc/registry.md`](/doc/registry.md) | resolves named segment entries used during run execution |
+Run sits in the middle of the core model:
+
+- **Line** creates runs and orchestrates lifecycle around execution. See [`/doc/line.md`](/doc/line.md).
+- **Segment** defines handler/lifecycle semantics run executes. See [`/doc/segment.md`](/doc/segment.md).
+- **Registry** resolves named segment entries used during run execution. See [`/doc/registry.md`](/doc/registry.md).
