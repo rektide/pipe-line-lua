@@ -1,6 +1,6 @@
-# Segment Authoring
+# Segments
 
-This guide describes the segment contract and naming model used by pipe-line.
+This guide covers the segment model in general: contract, lifecycle, sync behavior, async boundary behavior, and runtime identity.
 
 References:
 
@@ -8,6 +8,8 @@ References:
 - [`/lua/pipe-line/segment/define.lua`](/lua/pipe-line/segment/define.lua)
 - [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua)
 - [`/lua/pipe-line/run.lua`](/lua/pipe-line/run.lua)
+- [`/doc/lifecycle.md`](/doc/lifecycle.md)
+- [`/doc/async-handoff.md`](/doc/async-handoff.md)
 
 ## Core Contract
 
@@ -15,11 +17,38 @@ Segment behavior is centered on one run-facing verb:
 
 - `handler(run)`
 
-Lifecycle hooks remain:
+Lifecycle hooks:
 
 - `init(context)`
 - `ensure_prepared(context)`
 - `ensure_stopped(context)`
+
+## Segment Layers
+
+Segment code is easiest to reason about in three layers:
+
+1. **Spec layer**: static fields (`type`, `wants`, `emits`, hook definitions)
+2. **Instance layer**: per-line setup in `init(context)`
+3. **Run layer**: per-message behavior in `handler(run)`
+
+```mermaid
+flowchart TB
+    subgraph spec[Spec Layer]
+        type["type · wants · emits"]
+        hooks["init · ensure_prepared · ensure_stopped"]
+        handler["handler(run)"]
+    end
+    subgraph instance[Instance Layer — per line]
+        init["init(ctx) sets up state, queues, futures"]
+    end
+    subgraph runlayer[Run Layer — per message]
+        handlerRun["handler(run) reads run.input, returns result"]
+    end
+    spec -->|"line materializes"| instance
+    instance -->|"each message"| runlayer
+```
+
+Use `init` for per-instance defaults and state. Avoid mutating shared prototypes at run time.
 
 ## Minimal Segment
 
@@ -61,19 +90,6 @@ registry:register("my_segment", {
 })
 ```
 
-## Run-Centric Continuation Model
-
-`handler(run)` starts processing for this run path.
-
-- sync segments usually return a value directly
-- async boundary segments usually hand off and resume later via continuation run objects
-
-If a segment needs to track continuation handles for a run, use:
-
-- `run.continuation`
-
-A single continuation slot is acceptable.
-
 ## Handler Return Semantics
 
 Current shorthand semantics:
@@ -82,34 +98,76 @@ Current shorthand semantics:
 - `false`: stop this run path
 - `nil`: keep current `run.input` unchanged
 
-Boundary segments often return `false` after handing off continuation, then call continuation `:next(...)` later.
+## Sync vs Async Segment Behavior
 
-## Segment Layers
+### Sync segment
 
-Segment code is easiest to reason about in three layers:
+- returns transformed value (`run.input` replacement) or `nil`
+- run continues inline to next segment
 
-1. **Spec layer**: static fields (`type`, `wants`, `emits`, hook definitions)
-2. **Instance layer**: per-line setup in `init(context)`
-3. **Run layer**: per-message behavior in `handler(run)`
+### Async boundary segment
 
-```mermaid
-flowchart TB
-    subgraph spec[Spec Layer]
-        type["type · wants · emits"]
-        hooks["init · ensure_prepared · ensure_stopped"]
-        handler["handler(run)"]
-    end
-    subgraph instance[Instance Layer — per line]
-        init["init(ctx) sets up state, queues, futures"]
-    end
-    subgraph runlayer[Run Layer — per message]
-        handlerRun["handler(run) reads run.input, returns result"]
-    end
-    spec -->|"line materializes"| instance
-    instance -->|"each message"| runlayer
+- initiates async handoff in `handler(run)`
+- returns `false` to stop inline path now
+- later resumes via continuation run `:next(...)`
+
+## Async Boundary Handler Contract
+
+When a boundary segment hands off a continuation run to async transport, it should:
+
+1. hand off continuation ownership (`queue:push(...)`, pending append, task handoff)
+2. return `false` from `handler(run)`
+3. resume later with `continuation:next(...)`
+
+In short: **stop now, continue later**.
+
+### Why `false` matters
+
+`Run:execute()` interprets `false` as stop-this-run-path now.
+
+This prevents double flow:
+
+- wrong: inline path continues, and async path also continues later
+- right: inline path stops at boundary, only continuation path resumes later
+
+### Run-owned continuation
+
+Continuation ownership is run-centric.
+
+- tracking field: `run.continuation`
+- continuation shape is flexible; a single slot is acceptable
+
+Boundary segments transport continuation runs; they do not redefine run semantics.
+
+### Example: Queue handoff
+
+```lua
+handler = function(run)
+  local continuation = run -- or clone/fork strategy
+  run.continuation = continuation
+  queue:push({ continuation = continuation })
+  return false
+end
+
+-- later, in worker/consumer:
+local message = queue:pop()
+message.continuation:next()
 ```
 
-Use `init` for per-instance defaults and state. Avoid mutating shared prototypes at run time.
+### Failure modes to avoid
+
+- returning `nil`/value after handoff and also calling `continuation:next(...)` later
+- calling `continuation:next(...)` multiple times for one handoff path
+- treating continuation as segment-owned state instead of run-owned flow state
+
+## Lifecycle Relationship
+
+`ensure_prepared` and `ensure_stopped` handle transport startup/shutdown around handler contract.
+
+- `handler(run)` decides when ownership moves to async transport
+- lifecycle hooks decide when workers/queues are available and when they stop
+
+See [`/doc/lifecycle.md`](/doc/lifecycle.md), [`/doc/async-handoff.md`](/doc/async-handoff.md), and [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md).
 
 ## Lifecycle Context
 

@@ -117,7 +117,7 @@ registry:register("validator", {
 - **`false`** → stops this run path (message filtered)
 - **`nil`** → keeps current `run.input` unchanged
 
-Boundary segments typically return `false` after handing off continuation ownership, then call `continuation:next(...)` later. See [`/doc/continuation-handoff.md`](/doc/continuation-handoff.md) for the full stop-now/continue-later contract.
+Boundary segments typically return `false` after handing off continuation ownership, then call `continuation:next(...)` later. See [`/doc/segment-authoring.md`](/doc/segment-authoring.md) for the full async boundary handler contract.
 
 ### Protocol-Aware Segments
 
@@ -170,7 +170,7 @@ Strategy controls how the continuation run is created: `self` (default, zero-all
 
 ### Run-Owned Continuation
 
-Continuation tracking is run-centric. `mpsc_handoff` carries continuation runs across the queue boundary; it transports them, it does not redefine run semantics. If per-run continuation bookkeeping is needed, use `run.continuation` (single-slot is acceptable) ([`/doc/segment-instancing.md`](/doc/segment-instancing.md), [`/doc/continuation-handoff.md`](/doc/continuation-handoff.md)).
+Continuation tracking is run-centric. `mpsc_handoff` carries continuation runs across the queue boundary; it transports them, it does not redefine run semantics. If per-run continuation bookkeeping is needed, use `run.continuation` (single-slot is acceptable) ([`/doc/segment-instancing.md`](/doc/segment-instancing.md), [`/doc/segment-authoring.md`](/doc/segment-authoring.md)).
 
 ## Stop Model
 
@@ -536,7 +536,7 @@ Messages are Lua tables with conventional fields:
 Core documentation:
 
 - Segment authoring and hook contracts: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Continuation handoff contract: [`/doc/continuation-handoff.md`](/doc/continuation-handoff.md)
+- Async boundary handler contract: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
 - Segment instancing and selectors: [`/doc/segment-instancing.md`](/doc/segment-instancing.md)
 - Selector utilities and live stop waiting: [`/doc/selecting.md`](/doc/selecting.md)
 - Line lifecycle orchestration: [`/doc/lifecycle.md`](/doc/lifecycle.md)

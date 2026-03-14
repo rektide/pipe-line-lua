@@ -44,7 +44,7 @@ This note proposes a fresh structure for [`/README.md`](/README.md), centered on
 Use these as direct references from README sections:
 
 - Segment contract: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Continuation semantics: [`/doc/continuation-handoff.md`](/doc/continuation-handoff.md)
+- Continuation semantics: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
 - Async handoff usage: [`/doc/async-handoff.md`](/doc/async-handoff.md)
 - Lifecycle and stop orchestration: [`/doc/lifecycle.md`](/doc/lifecycle.md)
 - Completion semantics: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
@@ -66,7 +66,7 @@ Use these as direct references from README sections:
 ## Docs Map
 
 - Segment Contract: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
-- Continuation Handoff: [`/doc/continuation-handoff.md`](/doc/continuation-handoff.md)
+- Async Boundary Handler Contract: [`/doc/segment-authoring.md`](/doc/segment-authoring.md)
 - Async Boundary Usage: [`/doc/async-handoff.md`](/doc/async-handoff.md)
 - Lifecycle + Stop Strategy: [`/doc/lifecycle.md`](/doc/lifecycle.md)
 - Completion Protocol: [`/doc/completion-protocol.md`](/doc/completion-protocol.md)
@@ -78,5 +78,5 @@ Use these as direct references from README sections:
 - Verify code snippets import current module names consistently.
 - Verify all file links resolve to current paths.
 - Ensure quick start uses the same vocabulary as segment docs.
-- Ensure async section references continuation handoff explicitly.
+- Ensure async section references async boundary handler contract explicitly.
 - Ensure stop section references `stop_type` strategy terms exactly.

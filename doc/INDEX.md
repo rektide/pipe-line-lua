@@ -6,7 +6,7 @@ These define the current architecture. Read these to understand pipe-line.
 
 | Document | Created | Description |
 |----------|---------|-------------|
-| [`segment-authoring.md`](/doc/segment-authoring.md) | 2026-02-26 | Segment contract: `handler(run)`, lifecycle hooks, return semantics, protocol pass-through via `define()` |
+| [`segment-authoring.md`](/doc/segment-authoring.md) | 2026-02-26 | Segment model guide: contract, sync/async boundary handler behavior, lifecycle hooks, protocol pass-through via `define()` |
 | [`segment-instancing.md`](/doc/segment-instancing.md) | 2026-02-26 | How registry prototypes become per-line runtime instances; `auto_fork`/`auto_instance`/`auto_id`; continuation ownership |
 | [`selecting.md`](/doc/selecting.md) | 2026-02-26 | `line:select_segments()` and `line:stopped_live()` for runtime segment queries |
 | [`lifecycle.md`](/doc/lifecycle.md) | 2026-02-26 | Line lifecycle orchestration: `ensure_prepared`, `ensure_stopped`, `close`, hook context shape, strategy-specific stop |
