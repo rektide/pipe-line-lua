@@ -36,6 +36,31 @@ Context fields typically include:
 
 `ensure_prepared` and `ensure_stopped` should be idempotent.
 
+## Segment Layers
+
+Segment code is easiest to reason about in three layers:
+
+1. **Spec layer**: static fields (`type`, `wants`, `emits`, hook definitions)
+2. **Instance layer**: per-line setup in `init(context)`
+3. **Run layer**: per-message behavior in `handler(run)`
+
+```mermaid
+flowchart TB
+    subgraph spec[Spec Layer]
+        type["type · wants · emits"]
+        hooks["init · ensure_prepared · ensure_stopped"]
+        handler["handler(run)"]
+    end
+    subgraph instance[Instance Layer — per line]
+        init["init(ctx) sets up state, queues, futures"]
+    end
+    subgraph runlayer[Run Layer — per message]
+        handlerRun["handler(run) reads run.input, returns result"]
+    end
+    spec -->|"line materializes"| instance
+    instance -->|"each message"| runlayer
+```
+
 ## Minimal Segment
 
 ```lua
@@ -149,6 +174,20 @@ Protocol wrappers prevent accidental consumption of control runs unless explicit
 
 `mpsc_handoff` is the canonical boundary segment.
 
+Basic placement pattern:
+
+```lua
+local pipeline = require("pipe-line")
+local app = pipeline({ source = "myapp" })
+app.pipe = pipeline.Pipe({
+  "timestamper",
+  "mpsc_handoff",
+  "cloudevent",
+})
+
+app:info("async message")
+```
+
 Factory/config:
 
 ```lua
@@ -175,6 +214,12 @@ local continuation = envelope[segment.HANDOFF_FIELD]
 continuation:next()
 ```
 
+Lifecycle behavior for handoff boundary:
+
+- queue consumer startup is driven by `ensure_prepared`
+- queue consumer shutdown is driven by `ensure_stopped`
+- `line:close()` coordinates both through line lifecycle orchestration
+
 ## Completion Protocol Segment
 
 `completion` segment is protocol-aware and stateful.
@@ -196,6 +241,62 @@ Completion segment behavior:
 | `handler` | applies completion counters and resolves `state.stopped` when settled |
 
 This allows completion settlement to be modeled as regular run flow, not out-of-band queue metadata.
+
+Creating control runs:
+
+```lua
+local protocol = require("pipe-line.protocol")
+
+local hello = protocol.completion.completion_run("hello", "worker:a")
+local done = protocol.completion.completion_run("done", "worker:a")
+
+app:run(hello)
+app:run(done)
+```
+
+Applying completion state in isolation:
+
+```lua
+local protocol = require("pipe-line.protocol")
+local state = {}
+
+protocol.completion.apply(state, hello)
+protocol.completion.apply(state, done)
+
+if state.settled then
+  -- done >= hello
+end
+```
+
+Completion lifecycle sequence:
+
+```mermaid
+sequenceDiagram
+    participant line as Line
+    participant comp as completion segment
+    participant state as Completion State
+
+    line->>comp: ensure_prepared(ctx)
+    comp->>line: run(hello)
+    line->>comp: handler(run)
+    comp->>state: apply(hello)
+    Note over state: settled = false
+
+    line->>comp: ensure_stopped(ctx)
+    comp->>line: run(done)
+    line->>comp: handler(run)
+    comp->>state: apply(done)
+    Note over state: settled = true
+    comp->>comp: stopped:complete()
+```
+
+Targeted completion wait pattern:
+
+```lua
+local completion_stopped = app:stopped_live("completion")
+app:close()
+completion_stopped:await(1000, 10)
+```
 
 ## Segment Instancing and Identity
 
@@ -234,3 +335,9 @@ Execution chain summary:
 | 2 | line resolves/materializes runtime segment instances |
 | 3 | run invokes segment handlers in order |
 | 4 | segments may hand off async continuation and re-enter later |
+
+## Related Deep Dives
+
+- Run execution details: [`/doc/run.md`](/doc/run.md)
+- Line lifecycle orchestration: [`/doc/line.md`](/doc/line.md)
+- Registry resolution and emits indexing: [`/doc/registry.md`](/doc/registry.md)
