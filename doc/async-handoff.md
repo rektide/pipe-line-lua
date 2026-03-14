@@ -56,7 +56,7 @@ For manual testing/control, disable auto-start and pop envelopes yourself.
 
 ```lua
 local pipeline = require("pipe-line")
-local app = pipeline({ autoStartConsumers = false })
+local app = pipeline({ auto_start_consumers = false })
 local handoff = pipeline.segment.mpsc_handoff()
 app.pipe = pipeline.Pipe({ handoff, "capture" })
 
