@@ -136,7 +136,81 @@ Two Architecture Decision Records:
 - `cancel_immediate` as opt-in behavior
 - Lazy signal creation for cancel/drain/stopped futures
 
-### Phase 7: Simplification (Mar 14)
+### Phase 7: Handler-First Contract Evolution (Mar 8)
+
+The transport interface evolved to be more handler-centric:
+
+**Commit [`05b0cfb`]**: "remove dispatch hook and make continuation run-owned"
+
+Key changes:
+- Removed `dispatch(segment, run, continuation, runtime)` hook
+- Renamed to `handler(segment, run, runtime)` - transport now owns full handler logic
+- Continuation stored on `run.continuation` (single slot, no map needed)
+- Transport's `handler` does full job: prepare continuation, dispatch, return result
+
+Before:
+```lua
+segment.handler = function(run)
+  continuation = prepare_continuation(...)
+  transport.dispatch(segment, run, continuation, runtime)
+  return stop_result_or_false(segment)
+end
+```
+
+After:
+```lua
+segment.handler = function(run)
+  return transport.handler(segment, run, runtime)
+end
+```
+
+**Commit [`b8bd1c0`]**: "codify handler-first transport contract in docs and transport metadata"
+
+Added `type` field to transport metadata, documented the handler-first contract.
+
+### Phase 8: Rename and Documentation (Mar 8-13)
+
+**Commits [`0a879ad`..`c171361`]**: "rename termichatter to pipe-line"
+
+Complete rename of the project:
+- `lua/termichatter/` → `lua/pipe-line/`
+- All `require("termichatter.*")` → `require("pipe-line.*")`
+- Environment variables `TERMICHATTER_*` → `PIPE_LINE_*`
+- Moved outdated docs to `doc/archive/`
+
+**Commits [`12aa07f`..`608a736`]**: Documentation consolidation
+
+- Created `doc/INDEX.md` with tiered documentation structure
+- Added mermaid diagrams throughout core docs
+- Rewrote README with run-first architecture
+- Added `doc/metatables.md` for metatable chain documentation
+- Created deep core docs for line, run, segment, registry
+
+**Commit [`77b2b5f`]**: "add continuation handoff contract guide"
+
+Documented the continuation handoff contract as a standalone guide.
+
+**Commit [`8818622`]**: "fold async handoff and completion protocol details into segment guide"
+
+Consolidated async handoff documentation into the main segment guide.
+
+### Phase 9: Driver Discovery (Mar 14)
+
+**Commit [`ec034b7`]**: "add discovery draft for driver as async stage"
+
+The [`doc/discovery/driver.md`](/doc/discovery/driver.md) document explored making `driver.lua` a proper segment type. Key insight:
+
+> driver should be implemented as a segment type, not as a detached utility-only abstraction
+
+This discovery work exposed the complexity of the transport layer - even understanding mpsc required reading 4 different files:
+- `segment/mpsc.lua` (segment entry)
+- `define/mpsc.lua` (wrapper composition)
+- `transport/mpsc.lua` (actual behavior)
+- `consumer.lua` (runtime loop)
+
+The document asked: "Why mpsc still feels unclear" - the layering was good but hidden behavior.
+
+### Phase 10: Simplification (Mar 14)
 
 **Commit [`a2639ab`]**: "Simplify async: delete transport layer, make run:execute() awaitable-aware"
 
@@ -223,11 +297,31 @@ end
 
 ### Preserved Documents
 
-- [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md) - transport contract (still exists)
+- [`/doc/adr/adr-transport-policy-interface.md`](/doc/adr/adr-transport-policy-interface.md) - transport contract (still exists, documents handler-first pattern)
 - [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md) - stop semantics (still exists)
+- [`/doc/discovery/driver.md`](/doc/discovery/driver.md) - driver-as-segment exploration (led to simplification)
 - [`/doc/archive/re-async.md`](/doc/archive/re-async.md) - async-first architecture plan
 - [`/doc/archive/coop2.md`](/doc/archive/coop2.md) - lifecycle and completion design
 - [`/doc/archive/mpsc-decomposition.md`](/doc/archive/mpsc-decomposition.md) - decomposition options
+
+## Open Work
+
+### Driver as Segment
+
+The driver discovery document outlined a plan to implement driver as a first-class segment type. This was not completed before the simplification. Key open questions:
+
+1. Should driver segment be boundary-style (returns `false`) or transformer-style (inline)?
+2. Should driver reuse mpsc envelope transport or use local task scheduling?
+3. How should stop strategy TODOs interact with scheduler teardown?
+
+### Stop Strategy Implementation
+
+The [`adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md) ADR defined:
+- `drain_done` - all queued continuations acknowledged
+- `cancel_done` - cancel signal observed by worker
+- `stopped_done` - runner fully stopped
+
+This was documented but not fully implemented before simplification.
 
 ## Design Lessons
 
@@ -256,4 +350,24 @@ end
 | `9288e58` | Feb 26 06:49 | extract shared task define core and slim safe-task wrapper |
 | `12e6857` | Feb 26 18:18 | decompose define wrappers by transport and remove task-core |
 | `daf6d5f` | Feb 26 23:02 | add ADRs for transport policy and stop semantics |
+| `05b0cfb` | Mar 8 06:39 | remove dispatch hook, make continuation run-owned |
+| `b8bd1c0` | Mar 8 06:54 | codify handler-first transport contract |
+| `0a879ad` | Mar 9 | rename termichatter to pipe-line |
+| `77b2b5f` | Mar 13 22:16 | add continuation handoff contract guide |
+| `8818622` | Mar 14 03:51 | fold async handoff into segment guide |
+| `ec034b7` | Mar 14 05:13 | add discovery draft for driver as async stage |
 | `a2639ab` | Mar 14 06:05 | Simplify async: delete transport layer |
+
+## Summary
+
+The transport layer existed for **16 days** (Feb 26 - Mar 14). It was:
+
+1. **Designed** through decomposition exploration (Feb 25-26)
+2. **Implemented** as three transports: mpsc, safe-task, unsafe-task (Feb 26)
+3. **Abstracted** into a transport policy system (Feb 26)
+4. **Codified** in ADRs (Feb 26-27)
+5. **Evolved** to handler-first contract (Mar 8)
+6. **Explored** for driver-as-segment implications (Mar 14)
+7. **Removed** in favor of simpler awaitable-aware run:execute() (Mar 14)
+
+The design was sound - it cleanly separated async mechanics from segment logic. But the layering added cognitive overhead: understanding mpsc required reading 4 files across 3 directories. The simplification traded that composability for directness: handlers now simply return awaitables, and the runtime handles them uniformly.
