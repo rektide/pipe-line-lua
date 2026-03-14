@@ -257,7 +257,7 @@ end
 
 --- Create a new Run for a line
 ---@param line table The line to run
----@param config? table Config (noStart, input, etc)
+---@param config? table Config (auto_start, input, etc)
 ---@return table run The Run instance
 function Run.new(line, config)
 	config = config or {}
@@ -272,7 +272,7 @@ function Run.new(line, config)
 	}
 
 	for k, v in pairs(config) do
-		if k ~= "noStart" and k ~= "input" then
+		if k ~= "auto_start" and k ~= "input" and k ~= "noStart" and k ~= "no_start" then
 			run[k] = v
 		end
 	end
@@ -285,7 +285,7 @@ function Run.new(line, config)
 		return line[k]
 	end })
 
-	if not config.noStart then
+	if config.auto_start ~= false then
 		run:execute()
 	end
 

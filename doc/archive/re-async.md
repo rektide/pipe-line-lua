@@ -60,7 +60,7 @@ Current entry flow is synchronous:
 
 - `pipe-line(config)` creates a line.
 - `line:log(...)` calls `line:run(...)`.
-- `Run.new(..., noStart=false)` executes `run:execute()` immediately on caller thread.
+- `Run.new(..., auto_start=true)` executes `run:execute()` immediately on caller thread.
 
 This means code is not in task context at ingress.
 

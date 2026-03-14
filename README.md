@@ -311,7 +311,7 @@ local Run = require("pipe-line.run")
 
 -- Usually you don't create runs directly — line:run() does it.
 -- But for testing or custom control:
-local r = Run(line, { input = { message = "hello" }, noStart = true })
+local r = Run(line, { input = { message = "hello" }, auto_start = false })
 r:execute()  -- walk the pipe from current pos to end
 ```
 

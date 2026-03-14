@@ -25,7 +25,7 @@ describe("pipe-line.pipeline", function()
 			app.pipe = require("pipe-line.pipe").new({ "timestamper", "cloudevent" })
 
 			local Run = require("pipe-line.run")
-			local run = Run.new(app, { noStart = true, input = { message = "test" } })
+			local run = Run.new(app, { auto_start = false, input = { message = "test" } })
 			run:execute()
 
 			local received = nil

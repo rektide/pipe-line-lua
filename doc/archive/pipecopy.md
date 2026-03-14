@@ -52,7 +52,7 @@ this is Cursor like entity that walks the line.
 
 - a Run inherits from the `line` of which it was instantiated, it has a \_\_metatable that enriches / derives from a line.
 - immediately after, all options passed to the constructor are written to self
-- unless `noStart` is specified, begins run execution by running first pipe
+- unless `auto_start = false` is specified, begins run execution by running first pipe
 - walks through the line, running each pipe in `pipe` one after another.
 - to run through a pipe, we look at `current` to get the current pipe. and we call it as a function, using the `run` as self
 

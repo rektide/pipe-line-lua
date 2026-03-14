@@ -26,7 +26,7 @@ describe("pipe-line.run", function()
 		it("does not copy methods onto instance", function()
 			registry:register("noop", { handler = function(run) return run.input end })
 			local l = make_line({ "noop" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 
 			-- methods should NOT be in rawget
 			assert.is_nil(rawget(r, "execute"))
@@ -119,7 +119,7 @@ describe("pipe-line.run", function()
 			end })
 
 			local l = make_line({ "s1", "s2" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r.pos = 1
 			r:next()
 			assert.are.same({ "s2" }, order)
@@ -136,7 +136,7 @@ describe("pipe-line.run", function()
 			end })
 
 			local l = make_line({ "anchor", "collector" })
-			local r = Run.new(l, { noStart = true, input = { source = true } })
+			local r = Run.new(l, { auto_start = false, input = { source = true } })
 			r.pos = 1
 
 			local child = r:emit({ emitted = true })
@@ -157,7 +157,7 @@ describe("pipe-line.run", function()
 			end })
 
 			local l = make_line({ "anchor", "collector" })
-			local r = Run.new(l, { noStart = true, input = { source = true } })
+			local r = Run.new(l, { auto_start = false, input = { source = true } })
 			r.pos = 1
 
 			local continued = r:emit({ self_emit = true }, "self")
@@ -177,7 +177,7 @@ describe("pipe-line.run", function()
 			end })
 
 			local l = make_line({ "anchor", "collector" })
-			local r = Run.new(l, { noStart = true, input = { source = true } })
+			local r = Run.new(l, { auto_start = false, input = { source = true } })
 			r.pos = 1
 
 			local child = r:emit({ fork_emit = true }, "fork")
@@ -194,7 +194,7 @@ describe("pipe-line.run", function()
 	describe("set_fact", function()
 		it("lazily creates fact table", function()
 			local l = make_line({})
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			assert.is_nil(rawget(r, "fact"))
 
 			r:set_fact("time")
@@ -206,7 +206,7 @@ describe("pipe-line.run", function()
 			local l = make_line({})
 			l.fact.baseline = true
 
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			-- before set_fact, fact resolves to line.fact via metatable
 			assert.is_true(r.fact.baseline)
 
@@ -218,7 +218,7 @@ describe("pipe-line.run", function()
 
 		it("does not pollute line.fact", function()
 			local l = make_line({})
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r:set_fact("private")
 			assert.is_nil(l.fact.private)
 		end)
@@ -227,7 +227,7 @@ describe("pipe-line.run", function()
 	describe("own", function()
 		it("own pipe creates independent clone", function()
 			local l = make_line({ "a", "b" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 
 			assert.are.equal(l.pipe, r.pipe) -- shared
 			r:own("pipe")
@@ -243,7 +243,7 @@ describe("pipe-line.run", function()
 			local l = make_line({})
 			l.fact.from_line = true
 
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r:set_fact("from_run")
 			r:own("fact")
 
@@ -261,7 +261,7 @@ describe("pipe-line.run", function()
 		it("creates lightweight copy", function()
 			registry:register("pass", { handler = function(run) return run.input end })
 			local l = make_line({ "pass" })
-			local r = Run.new(l, { noStart = true, input = { orig = true } })
+			local r = Run.new(l, { auto_start = false, input = { orig = true } })
 
 			local c = r:clone({ cloned = true })
 			assert.are.equal(r.line, c.line)
@@ -277,7 +277,7 @@ describe("pipe-line.run", function()
 			end })
 
 			local l = make_line({ "collect" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r.pos = 1
 
 			local c1 = r:clone({ id = 1 })
@@ -292,7 +292,7 @@ describe("pipe-line.run", function()
 
 		it("sees parent run owned fact", function()
 			local l = make_line({})
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r:set_fact("parent_fact")
 
 			local c = r:clone({})
@@ -305,7 +305,7 @@ describe("pipe-line.run", function()
 			local l = make_line({ "a", "b" })
 			l.fact.shared = true
 
-			local r = Run.new(l, { noStart = true, input = { orig = true } })
+			local r = Run.new(l, { auto_start = false, input = { orig = true } })
 			r:set_fact("run_fact")
 
 			local f = r:fork({ forked = true })
@@ -325,7 +325,7 @@ describe("pipe-line.run", function()
 	describe("sync", function()
 		it("adjusts pos after line pipe splice", function()
 			local l = make_line({ "a", "b", "c" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r.pos = 3 -- pointing at "c"
 
 			-- insert two element before pos
@@ -339,7 +339,7 @@ describe("pipe-line.run", function()
 
 		it("is no-op when run owns pipe", function()
 			local l = make_line({ "a", "b", "c" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r.pos = 3
 			r:own("pipe")
 
@@ -350,7 +350,7 @@ describe("pipe-line.run", function()
 
 		it("is no-op when rev matches", function()
 			local l = make_line({ "a", "b", "c" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r.pos = 3
 
 			r:sync()
@@ -359,7 +359,7 @@ describe("pipe-line.run", function()
 
 		it("handles multiple splice journal entries", function()
 			local l = make_line({ "a", "b", "c", "d", "e" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r.pos = 5 -- pointing at "e"
 
 			-- first splice: insert "x" at position 2
@@ -376,7 +376,7 @@ describe("pipe-line.run", function()
 
 		it("snaps pos when inside deleted zone", function()
 			local l = make_line({ "a", "b", "c", "d", "e" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r.pos = 3 -- pointing at "c"
 
 			-- delete positions 2-4 (b, c, d)
@@ -389,7 +389,7 @@ describe("pipe-line.run", function()
 
 		it("handles mixed insert and delete splices", function()
 			local l = make_line({ "a", "b", "c", "d" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r.pos = 4 -- pointing at "d"
 
 			-- replace "b" with "x", "y", "z"
@@ -402,7 +402,7 @@ describe("pipe-line.run", function()
 
 		it("clone syncs against inherited owned pipe", function()
 			local l = make_line({ "a", "b", "c" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r.pos = 3
 			r:own("pipe")
 
@@ -547,7 +547,7 @@ describe("pipe-line.run", function()
 	describe("fork pipe independence", function()
 		it("forked run can splice without affecting parent", function()
 			local l = make_line({ "a", "b", "c" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 
 			local f = r:fork()
 			f.pipe:splice(2, 1) -- remove "b" from fork
@@ -559,7 +559,7 @@ describe("pipe-line.run", function()
 
 		it("sibling fork are independent", function()
 			local l = make_line({ "a", "b", "c", "d" })
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 
 			local f1 = r:fork({ id = 1 })
 			local f2 = r:fork({ id = 2 })
@@ -577,7 +577,7 @@ describe("pipe-line.run", function()
 		it("forked fact are independent", function()
 			local l = make_line({})
 			l.fact.shared = true
-			local r = Run.new(l, { noStart = true, input = {} })
+			local r = Run.new(l, { auto_start = false, input = {} })
 			r:set_fact("parent_fact")
 
 			local f1 = r:fork()

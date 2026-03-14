@@ -57,7 +57,7 @@ describe("pipe-line.consumer", function()
 			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
 			local Run = require("pipe-line.run")
 
-			local r = Run.new(l, { noStart = true, input = { message = "test" } })
+			local r = Run.new(l, { auto_start = false, input = { message = "test" } })
 			r:execute()
 			r.pos = 99
 
@@ -81,7 +81,7 @@ describe("pipe-line.consumer", function()
 			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
 			local Run = require("pipe-line.run")
 
-			local r = Run.new(l, { noStart = true, input = { message = "test" } })
+			local r = Run.new(l, { auto_start = false, input = { message = "test" } })
 			r:execute()
 			r.pos = 99
 
@@ -109,7 +109,7 @@ describe("pipe-line.consumer", function()
 			local l = make_line({ handoff, "marker" }, { autoStartConsumers = false })
 			local Run = require("pipe-line.run")
 
-			local r = Run.new(l, { noStart = true, input = { message = "test" } })
+			local r = Run.new(l, { auto_start = false, input = { message = "test" } })
 			r:execute()
 			l.pipe:splice(2, 1, "replacement")
 
