@@ -53,7 +53,7 @@ Project rename from **nvim-pipe-line** to **pipe-line-lua**. represents a signif
 | `doc/consumer.md` | 2026-02-07 | 2026-02-25 | ✅ Fresh | Last update: Feb 2026 | Current, active documentation |
 | `doc/selecting.md` | 2026-02-26 | 2026-02-26 | ✅ Fresh | Never modified | May need alignment review with ADR work |
 | `doc/discovery/adr-async-boundary-segments.md` | 2026-02-25 | 2026-02-25 | ✅ Fresh | Current ADR | Superseded older discovery notes |
-| `doc/discovery/re-async.md` | 2026-02-26 | 2026-02-26 | ✅ Fresh | Never modified | Active planning document |
+| `doc/archive/re-async.md` | 2026-02-26 | 2026-02-26 | ✅ Fresh | Never modified | Archived planning document |
 
 | `doc/discovery/coop2.md` | 2026-02-26 | 2026-03-12 | Archive | Superseded by ADRs | Contains useful historical context |
 | `doc/discovery/mpsc-decomp-tasks.md` | 2026-02-26 | 2026-03-12 | Archive | Superseded by ADRs | Contains useful historical context |
