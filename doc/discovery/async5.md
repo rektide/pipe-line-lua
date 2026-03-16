@@ -11,7 +11,7 @@ v5 is a clean-slate redesign. Backward compatibility with explicit boundary segm
 
 ## Executive Summary
 
-- Async boundaries are implicit: a segment handler returns an AsyncOp.
+- Async boundaries are implicit: a segment handler returns an AsyncOp (or an awaitable accepted via duck typing).
 - No explicit `mpsc_handoff` entries in the pipe.
 - Async runtime mechanics are modeled as **segment-owned aspects**.
 - `gater` and `executor` are both aspects, and both use `handle(run)`.
@@ -105,8 +105,9 @@ This gives one consistent extension mechanism for lifecycle + data-plane behavio
 | non-`nil` value (except `false`) | replace input and continue inline |
 | `false` | stop run path |
 | `AsyncOp` | initialize async state, dispatch aspects, stop inline run |
+| awaitable duck type | normalize to AsyncOp(awaitable), then dispatch aspects |
 
-Sync semantics are unchanged. Async semantics are explicit and structured.
+Sync semantics are unchanged. Async semantics are explicit and structured. Raw awaitables are accepted by duck typing and normalized to `async.awaitable(...)` internally.
 
 ## AsyncOp API
 
@@ -128,7 +129,7 @@ return async.task_fn(function(ctx)
   return ctx.input
 end)
 
--- supported: already-running awaitable
+-- supported: already-running awaitable (wrapper optional)
 return async.awaitable(existing_task_or_future)
 ```
 
@@ -147,6 +148,28 @@ return async.awaitable(existing_task_or_future)
 ---@field awaitable? table
 ---@field meta? table
 ```
+
+### Awaitable Duck Typing
+
+v5 accepts raw awaitables without requiring explicit wrapping.
+
+Runtime detection rule:
+
+```lua
+local function is_awaitable(value)
+  if type(value) ~= "table" then
+    return false
+  end
+  return type(value.await) == "function" or type(value.pawait) == "function"
+end
+```
+
+If handler returns a duck-typed awaitable, runtime normalizes it to the internal AsyncOp awaitable shape.
+
+Notes:
+
+- `async.awaitable(x)` remains useful as explicit intent/documentation.
+- Duck typing keeps interop simple with coop `Future`/`Task` and compatible awaitable objects.
 
 ## Run-Centric Async State
 
@@ -651,6 +674,7 @@ local line = pipeline({
 5. `task_fn` is the primary AsyncOp style.
 6. Stop strategy names are `stop_drain` and `stop_immediate`.
 7. Async errors are propagated as structured data by default.
+8. Raw awaitables are accepted via duck typing and normalized internally.
 
 ## Migration Notes
 
@@ -681,7 +705,6 @@ Replace with tests for aspect dispatch, settle behavior, and gater/executor life
 1. Should second `run:settle(...)` call hard-error in dev mode and soft-ignore in normal mode?
 2. Should default `gate_inflight_overflow` stay `error`, or move to `drop_newest` for high-volume scenarios?
 3. Should v5 core include `direct` executor immediately or defer until buffered baseline is fully stabilized?
-4. Should `async.awaitable(...)` be required wrapper, or should raw awaitables be accepted by duck typing?
 
 ## Closing
 
