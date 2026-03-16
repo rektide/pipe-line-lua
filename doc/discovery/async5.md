@@ -1,154 +1,126 @@
-# Async Architecture v5: Gate + Executor with Deferred Async Operations
+# Async Architecture v5: Segment-Owned Async Aspects
 
 > Status: Discovery
 > Date: 2026-03-16
 > Supersedes: [async4.md](/doc/discovery/async4.md)
 > Revises: [adr-async-boundary-segments.md](/doc/discovery/adr-async-boundary-segments.md)
 
-This document defines the next async model for pipe-line after the boundary-segment and transport-wrapper experiments.
+This document defines the v5 async architecture for pipe-line.
 
-The short version:
+v5 is a clean-slate redesign. Backward compatibility with explicit boundary segments and transport wrappers is not an objective.
 
-- No explicit boundary segments in the pipe.
-- Async is detected from handler return type.
-- Async processing is split into two distinct runtime roles:
-  - **gate**: ingress admission and backpressure
-  - **executor**: egress async execution and continuation resume
-- Segment handlers should return **deferred async operations** (task functions), not `coop.spawn(...)` tasks.
-- Stop behavior is explicit with `stop_drain` and `stop_immediate`.
-- Errors are propagated as data downstream by default.
+## Executive Summary
 
-This is a clean-slate design. Backward compatibility with transport wrappers and explicit `mpsc_handoff` boundaries is not a goal.
+- Async boundaries are implicit: a segment handler returns an AsyncOp.
+- No explicit `mpsc_handoff` entries in the pipe.
+- Async runtime mechanics are modeled as **segment-owned aspects**.
+- `gater` and `executor` are both aspects, and both use `handle(run)`.
+- Aspects are the single extension point for async lifecycle hooks.
+- The run remains the one execution context; no separate `item` abstraction is introduced.
+- `task_fn` AsyncOp is the preferred async authoring style (avoid per-message `coop.spawn(...)`).
+- Default behavior forwards async errors as data to downstream segments.
+- Stop policies remain explicit: `stop_drain` and `stop_immediate`.
 
 ## Why v5 Exists
 
-v4 moved async detection into [`/lua/pipe-line/run.lua`](/lua/pipe-line/run.lua), which is directionally correct. But review uncovered two design gaps:
+Review of v4 identified two practical issues:
 
-1. **Ingress and egress were conflated.**
-   - A single driver object was expected to both gate intake and execute async work.
-   - Admission policies (semaphore, backpressure) and execution policies (worker/task context) are different concerns.
+1. **Ingress and egress were mixed in one object.**
+   - Admission/backpressure and async execution are different responsibilities.
+   - They should be separate components with separate state and semantics.
 
-2. **Async authoring had a performance contradiction.**
-   - Examples used `coop.spawn(...)` in handlers.
-   - That allocates a coroutine per message before the driver sees the work item.
-   - This defeats the point of long-lived queue consumers.
+2. **The authoring model still encouraged eager spawn.**
+   - `coop.spawn(...)` inside handler allocates a coroutine per message.
+   - That undermines the long-lived consumer optimization.
 
-v5 solves both:
-
-- split roles into gate + executor
-- introduce a first-class deferred async operation API (`task_fn` op)
+v5 keeps the good part of v4 (implicit async detection in run execution) while tightening architecture around segment aspects and deferred operations.
 
 ## Goals
 
-1. Keep pipe definitions focused on business work, not async plumbing.
-2. Make ingress control explicit and configurable (semaphore/backpressure).
-3. Keep async execution in stable task context (for `coop.uv` compatibility).
-4. Eliminate per-message `coop.spawn` overhead in normal segment authoring.
-5. Preserve deterministic continuation semantics.
-6. Make stop semantics and error propagation explicit and testable.
+1. Keep pipe definitions focused on business processing steps.
+2. Make ingress throttling/backpressure explicit and optional.
+3. Keep async execution in coop task context so `coop.uv` works naturally.
+4. Preserve the run as the single self-contained context object.
+5. Make lifecycle and stop behavior explicit and testable.
+6. Make async failure behavior deterministic and observable.
 
 ## Non-goals
 
-1. Preserve old transport wrapper APIs.
-2. Keep explicit boundary segments (`mpsc_handoff`) as primary async API.
-3. Support run-level async policy overrides (`run:set_fact(...)` etc) for gate/executor controls.
-4. Implement true multi-consumer `MpscQueue` behavior in v5 core (coop queue is single-consumer waiter).
+1. Preserve old boundary-segment API shape.
+2. Keep transport wrappers as first-class architecture.
+3. Support run-level async policy overrides through `fact`.
+4. Claim unsupported multi-waiter queue behavior for coop MPSC queue.
 
 ## Reference Materials
 
 | Area | Source | Why it matters |
 |------|--------|----------------|
 | Current run loop | [`/lua/pipe-line/run.lua`](/lua/pipe-line/run.lua) | Async detection insertion point |
-| Current line lifecycle | [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua) | prepare/stop orchestration |
-| Current registry | [`/lua/pipe-line/registry.lua`](/lua/pipe-line/registry.lua) | Named resolution pattern |
-| Current explicit consumer | [`/lua/pipe-line/consumer.lua`](/lua/pipe-line/consumer.lua) | Legacy queue draining model |
-| Current driver timer utility | [`/lua/pipe-line/driver.lua`](/lua/pipe-line/driver.lua) | Prior `driver` meaning |
-| Segment contract docs | [`/doc/segment.md`](/doc/segment.md) | Existing handler/lifecycle semantics |
-| Async v4 proposal | [`/doc/discovery/async4.md`](/doc/discovery/async4.md) | Immediate predecessor |
-| Boundary ADR | [`/doc/discovery/adr-async-boundary-segments.md`](/doc/discovery/adr-async-boundary-segments.md) | Decision being revised |
-| Stop strategy ADR | [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md) | Stop policy naming and intent |
-| coop queue semantics | [`gregorias/coop.nvim` `lua/coop/mpsc-queue.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/mpsc-queue.lua) | Single waiting consumer constraint |
-| coop task semantics | [`gregorias/coop.nvim` `lua/coop/task.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/task.lua) | task context and cancellation |
-| coop future semantics | [`gregorias/coop.nvim` `lua/coop/future.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/future.lua) | await/pawait behavior |
-| coop callback wrappers | [`gregorias/coop.nvim` `lua/coop/task-utils.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/task-utils.lua) | callback-to-task-function conversion |
-| coop uv wrappers | [`gregorias/coop.nvim` `lua/coop/uv.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/uv.lua) | why task context is mandatory |
+| Current line lifecycle | [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua) | where `ensure_prepared`/`ensure_stopped` run today |
+| Current registry | [`/lua/pipe-line/registry.lua`](/lua/pipe-line/registry.lua) | named resolution conventions |
+| Existing segment contract | [`/doc/segment.md`](/doc/segment.md) | base hook semantics |
+| Async v4 proposal | [`/doc/discovery/async4.md`](/doc/discovery/async4.md) | predecessor and lessons |
+| Boundary ADR | [`/doc/discovery/adr-async-boundary-segments.md`](/doc/discovery/adr-async-boundary-segments.md) | decision being replaced |
+| Stop ADR | [`/doc/adr/adr-stop-drain-and-cancel-signal.md`](/doc/adr/adr-stop-drain-and-cancel-signal.md) | policy naming and intent |
+| coop MPSC queue | [`gregorias/coop.nvim` `lua/coop/mpsc-queue.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/mpsc-queue.lua) | single waiting consumer constraint |
+| coop task | [`gregorias/coop.nvim` `lua/coop/task.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/task.lua) | cancellation and task context |
+| coop future | [`gregorias/coop.nvim` `lua/coop/future.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/future.lua) | await and pawait semantics |
+| coop uv | [`gregorias/coop.nvim` `lua/coop/uv.lua`](https://github.com/gregorias/coop.nvim/blob/main/lua/coop/uv.lua) | why async I/O must run inside task context |
 
-## Core Concepts
+## Core Design: Segment-Owned Aspects
 
-### 1) AsyncOp
+v5 introduces a simple model:
 
-A handler can return a dedicated async operation object (AsyncOp). This is the async handoff signal.
+- A segment may have an `aspects` array.
+- `gater` and `executor` are just standard aspect instances in that array.
+- Async dispatch walks the aspect chain using `run:dispatch()`.
+- Each aspect handles the run via `aspect:handle(run)`.
 
-### 2) Gate
+This gives one consistent extension mechanism for lifecycle + data-plane behavior.
 
-A gate controls **admission**:
+### Why this model
 
-- how much work can be in-flight
-- how much work can be pending
-- what to do when pending is full
+1. No special orchestration path for gate vs executor.
+2. No new user-facing object beyond run.
+3. Lifecycle is uniform: segment and aspects both expose the same hook names.
+4. Optional gate becomes trivial: omit it, or use a no-op gater.
 
-### 3) Executor
+## Terminology
 
-An executor controls **execution**:
+| Term | Meaning |
+|------|---------|
+| `AsyncOp` | async operation object returned by handler |
+| `gater` | ingress aspect for admission, pending queue, overflow policy |
+| `executor` | egress aspect that runs AsyncOp and settles result |
+| `aspect` | segment subprocessor with lifecycle hooks and `handle(run)` |
+| `settle` | finalize async outcome to continuation and continue downstream |
 
-- where and how AsyncOps run
-- task context availability (`coop.uv` calls)
-- continuation resume timing
+## Handler Return Contract
 
-### 4) Continuation
+`handler(run)` returns one of:
 
-A continuation is a cloned run that resumes after the current segment once async work settles.
+| Return | Behavior |
+|--------|----------|
+| `nil` | keep input and continue inline |
+| non-`nil` value (except `false`) | replace input and continue inline |
+| `false` | stop run path |
+| `AsyncOp` | initialize async state, dispatch aspects, stop inline run |
 
-### 5) Outcome
+Sync semantics are unchanged. Async semantics are explicit and structured.
 
-An outcome is the settled result of async work:
+## AsyncOp API
 
-- success with optional value
-- error with structured details
-
-## Architecture Overview
-
-```mermaid
-flowchart LR
-    handler[segment handler] --> decision{return kind}
-    decision -->|nil/value/false| sync_path[normal run semantics]
-    decision -->|AsyncOp| create_item[create continuation work item]
-    create_item --> gate[gate:submit]
-    gate --> executor[executor:submit]
-    executor --> settled[settled outcome]
-    settled --> finalize[finalize outcome to continuation input/errors]
-    finalize --> cont_next[continuation:next]
-    cont_next --> downstream[downstream segments]
-```
-
-The key design choice is that gate and executor are separate runtime objects with separate contracts.
-
-## Handler Return Contract (v5)
-
-`handler(run)` may return:
-
-| Return | Meaning |
-|--------|---------|
-| `nil` | Keep current input, continue inline |
-| non-`nil` value (except `false`) | Replace `run.input`, continue inline |
-| `false` | Stop this run path |
-| `AsyncOp` | Submit to gate+executor, stop inline run |
-
-This preserves existing sync behavior while adding a clear async path.
-
-## Async API
-
-v5 introduces a dedicated module, tentatively [`/lua/pipe-line/async.lua`](/lua/pipe-line/async.lua), with explicit constructors.
+v5 introduces [`/lua/pipe-line/async.lua`](/lua/pipe-line/async.lua).
 
 ### Constructors
 
 ```lua
 local async = require("pipe-line.async")
 
--- Deferred async work: preferred
-local op = async.task_fn(function(ctx)
-  -- runs in executor task context
-  local err, data = require("coop.uv").fs_read(ctx.input.fd, 4096)
+-- preferred: deferred operation
+return async.task_fn(function(ctx)
+  local uv = require("coop.uv")
+  local err, data = uv.fs_read(ctx.input.fd, 4096)
   if err then
     return async.fail({ code = "fs_read", message = err })
   end
@@ -156,122 +128,153 @@ local op = async.task_fn(function(ctx)
   return ctx.input
 end)
 
--- Already-running awaitable: supported but not preferred
-local op2 = async.awaitable(existing_task_or_future)
+-- supported: already-running awaitable
+return async.awaitable(existing_task_or_future)
 ```
 
 ### Why `task_fn` is preferred
 
-`task_fn` lets the executor decide **when** work begins. That enables real ingress control.
-
-If handlers call `coop.spawn(...)` directly, work has already started and gates become weaker or purely bookkeeping.
+- Work starts only when executor runs it.
+- Gating is meaningful (admission before execution).
+- No per-message coroutine allocation in handler.
 
 ### Suggested AsyncOp shape
 
 ```lua
 ---@class AsyncOp
 ---@field kind 'task_fn'|'awaitable'
----@field fn? fun(ctx: table): any             -- for kind=task_fn
----@field awaitable? table                     -- for kind=awaitable
----@field meta? table                          -- optional metadata
+---@field fn? fun(ctx: table): any
+---@field awaitable? table
+---@field meta? table
 ```
 
-### Optional fail helper
+## Run-Centric Async State
+
+No separate async `item` object is introduced.
+
+Instead, run gains an internal async namespace for one async handoff:
 
 ```lua
----@class AsyncFailure
----@field __pipe_line_async_fail true
----@field error table
-
--- async.fail({ code = "...", message = "...", detail = ... })
-```
-
-This avoids using `error(...)` for expected operational failures.
-
-## Gate Contract
-
-A gate admits work to an executor.
-
-```lua
----@class Gate
----@field type string
----@field submit fun(self: Gate, item: table, dispatch: function)
----@field ensure_prepared fun(self: Gate, context: table): table|nil
----@field ensure_stopped fun(self: Gate, context: table): table|nil
-```
-
-### `submit` semantics
-
-`submit(item, dispatch)` either:
-
-- dispatches immediately, or
-- queues item until capacity is available, or
-- applies overflow policy.
-
-The gate owns ingress accounting (`inflight`, `pending`, `accepting`).
-
-### Built-in gates
-
-1. `none` gate
-   - no admission limit
-   - immediate dispatch
-
-2. `inflight` gate
-   - semaphore + pending queue
-   - uses prefixed options:
-     - `gate_inflight_max`
-     - `gate_inflight_pending`
-     - optional `gate_inflight_overflow`
-
-## Executor Contract
-
-An executor runs AsyncOps and settles outcomes.
-
-```lua
----@class Executor
----@field type string
----@field submit fun(self: Executor, item: table)
----@field ensure_prepared fun(self: Executor, context: table): table|nil
----@field ensure_stopped fun(self: Executor, context: table): table|nil
-```
-
-`item` includes:
-
-- continuation run
-- AsyncOp
-- stable segment/line identity
-- one settlement callback (`item:settle(outcome)`) that must be called exactly once
-
-### Built-in executors
-
-1. `buffered` (default)
-   - one long-lived worker task
-   - queue-backed
-   - worker executes op and settles continuation
-
-2. `direct` (expert)
-   - minimal buffering
-   - tight producer/consumer coupling
-
-v5 default should prioritize correctness and debuggability (`buffered`).
-
-## Work Item and Settlement
-
-To make gate and executor composable, runtime creates a work item that represents one async handoff.
-
-Suggested item fields:
-
-```lua
-{
-  line = line,
+run._async = {
   segment = seg,
-  run = run,
+  op = async_op,
   continuation = continuation,
-  op = op,
+  aspects = seg._aspects,
+  aspect_index = 0,
   settled = false,
-  settle = function(outcome) ... end,
+  settle_cbs = {},
 }
 ```
+
+This state is runtime-internal. The run remains the single context object from user perspective.
+
+### Runtime methods on run
+
+```lua
+run:dispatch()          -- invoke next aspect:handle(run)
+run:on_settle(cb)       -- register async finalizer callback
+run:settle(outcome)     -- exactly-once settle path
+```
+
+`run:settle(...)` applies outcome to continuation, runs settle callbacks, and then calls `continuation:next()`.
+
+## Aspect Contract
+
+Aspects use symmetric data-plane naming and shared lifecycle hooks.
+
+```lua
+---@class SegmentAspect
+---@field type string
+---@field role string|nil           -- e.g. 'gater', 'executor', 'metrics'
+---@field handle fun(self, run: table): any
+---@field init? fun(self, context: table): table|nil
+---@field ensure_prepared? fun(self, context: table): table|nil
+---@field ensure_started? fun(self, context: table): table|nil
+---@field ensure_stopped? fun(self, context: table): table|nil
+```
+
+Notes:
+
+- `handle(run)` is required for active aspects in async chain.
+- `ensure_prepared` remains compatible with existing line lifecycle terminology.
+- `ensure_started` can be added as alias/newer naming if desired; v5 can support both.
+
+## Gater and Executor as Aspects
+
+`gater` and `executor` are not special contracts; they are role-tagged aspects in `segment.aspects`.
+
+### Gater behavior
+
+- Owns admission state (`accepting`, `inflight`, `pending`).
+- May dispatch immediately or enqueue.
+- Registers settle callback to release permit and pump pending queue.
+- Calls `run:dispatch()` when admitted.
+
+### Executor behavior
+
+- Owns execution runtime (queue workers or direct path).
+- Executes `run._async.op` in task context.
+- Calls `run:settle(outcome)` exactly once.
+
+## Lifecycle Model with Aspects
+
+Aspects are the one way a segment extends lifecycle participation.
+
+### Aspect resolution
+
+Segment instancing resolves and caches aspects on the segment instance:
+
+- `seg._aspects`
+- stable order for run dispatch
+
+### Resolution order
+
+Recommended chain:
+
+1. segment-declared `aspects` entries (in declared order)
+2. if no explicit `gater` present, inject resolved default gater
+3. if no explicit `executor` present, inject resolved default executor
+
+Default injection keeps common configuration simple while allowing explicit full control.
+
+### Lifecycle orchestration
+
+For each segment instance:
+
+1. `segment:init(context)` then each `aspect:init(context)`
+2. `segment:ensure_prepared(context)` then each `aspect:ensure_prepared(context)`
+3. `segment:ensure_stopped(context)` then each `aspect:ensure_stopped(context)`
+
+If `ensure_started` is implemented, run it where the project decides startup should become active; for compatibility, `ensure_prepared` remains the primary hook.
+
+## Dispatch Semantics
+
+### Core rule
+
+Aspect chain advances only through `run:dispatch()`.
+
+Pseudo implementation:
+
+```lua
+function Run:dispatch()
+  local a = rawget(self, "_async")
+  if not a then
+    error("dispatch called without async state", 0)
+  end
+
+  a.aspect_index = a.aspect_index + 1
+  local aspect = a.aspects[a.aspect_index]
+  if not aspect then
+    return nil
+  end
+
+  return aspect:handle(self)
+end
+```
+
+This ensures one consistent control flow across all async aspects.
+
+## Settlement Semantics
 
 ### Outcome shape
 
@@ -279,306 +282,302 @@ Suggested item fields:
 -- success
 { status = "ok", value = value_or_nil }
 
--- failure
+-- error
 { status = "error", error = { code = "...", message = "...", detail = ... } }
 ```
 
-`settle(...)` must be idempotent against double-calls.
+### Exactly-once requirement
 
-## Continuation Cursor Invariant
+`run:settle(...)` is idempotent. Second settle calls should be ignored and logged (or asserted in strict mode).
 
-This must be explicit to avoid off-by-one bugs.
+### Settle scope
 
-If completion path calls `continuation:next()`, then continuation should be created with:
+Settle callbacks are scoped to this async handoff instance on this run encounter. They are not global run hooks.
+
+## Continuation Invariant
+
+Continuation cursor semantics are fixed to avoid off-by-one errors.
+
+When async handoff occurs:
 
 ```lua
-continuation = run:clone(run.input)
+local continuation = run:clone(run.input)
 continuation.pos = run.pos
 ```
 
-Reason:
+Then settle path resumes with:
 
-- current segment is at `run.pos`
-- `next()` increments to `run.pos + 1`
-- execution resumes at the immediate downstream segment
+```lua
+continuation:next()
+```
 
-If using `execute()` instead of `next()`, cursor setup is different. v5 standardizes on `next()` to keep semantics consistent.
+This resumes exactly at downstream segment `run.pos + 1`.
 
 ## Configuration Model
 
-v5 sets gate/executor options only at segment or line scope.
+Async policy is configured at segment or line scope.
 
-Run/fact overrides are not part of the model.
+No run-level policy overrides.
 
-### Resolution chain
+### Core line defaults
 
-Gate:
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `default_gater` | `"none"` | gater to inject when segment has none |
+| `default_executor` | `"buffered"` | executor to inject when segment has none |
+| `gate_inflight_max` | `nil` | max admitted inflight (`nil` means unbounded) |
+| `gate_inflight_pending` | `nil` | max pending queue (`nil` means unbounded) |
+| `gate_inflight_overflow` | `"error"` | overflow policy: `error`, `drop_newest`, `drop_oldest` |
+| `gater_stop_type` | `"stop_drain"` | gater stop strategy |
+| `executor_stop_type` | `"stop_drain"` | executor stop strategy |
+| `aspects_auto_prepare` | `true` | prepare/start aspect runtime during lifecycle |
 
-```
-segment.gate -> line.default_gate -> built-in 'none'
-```
+### Segment-level override
 
-Executor:
+Segment may provide:
 
-```
-segment.executor -> line.default_executor -> built-in 'buffered'
-```
+- `aspects = { ... }` full explicit chain
+- or shorthand refs:
+  - `gater = "inflight"`
+  - `executor = "buffered"`
 
-Options:
-
-```
-segment option -> line option -> built-in default
-```
-
-### Core options
-
-| Field | Scope | Default | Meaning |
-|-------|-------|---------|---------|
-| `default_gate` | line | `"none"` | default gate ref |
-| `default_executor` | line | `"buffered"` | default executor ref |
-| `gate_inflight_max` | line/segment | `nil` | max in-flight items admitted by gate (`nil` means unbounded gate) |
-| `gate_inflight_pending` | line/segment | `nil` | max pending items in gate queue (`nil` means unbounded pending) |
-| `gate_inflight_overflow` | line/segment | `"error"` | overflow policy (`error`, `drop_newest`, `drop_oldest`) |
-| `gate_auto_prepare` | line/segment | `true` | prepare gate during lifecycle |
-| `executor_auto_prepare` | line/segment | `true` | prepare executor during lifecycle |
-| `gate_stop_type` | line/segment | `"stop_drain"` | gate stop strategy |
-| `executor_stop_type` | line/segment | `"stop_drain"` | executor stop strategy |
+If shorthand is present, resolver builds/inserts corresponding aspect objects.
 
 ## Registry Extensions
 
-Registry gains gate and executor namespaces in addition to segment resolution.
+Registry gains aspect factories for gater/executor roles.
 
 ```lua
-registry:register_gate("none", gates.none)
-registry:register_gate("inflight", gates.inflight)
+registry:register_gater("none", gaters.none)
+registry:register_gater("inflight", gaters.inflight)
 
 registry:register_executor("buffered", executors.buffered)
 registry:register_executor("direct", executors.direct)
 
--- and corresponding resolve methods
-registry:resolve_gate(name)
+registry:resolve_gater(name)
 registry:resolve_executor(name)
 ```
 
-This preserves the existing named-reference style for line/segment config.
+Optionally, registry can also support generic aspect registration:
 
-## Lifecycle and Instance Ownership
+```lua
+registry:register_aspect("metrics", aspects.metrics)
+registry:resolve_aspect(name)
+```
 
-### Per-segment-instance ownership
+## Built-in Gaters
 
-Gate and executor instances are cached on segment instances, not registry prototypes.
+### `none`
 
-Suggested private fields:
+- no admission limits
+- implementation is pass-through:
 
-- `seg._gate_instance`
-- `seg._executor_instance`
+```lua
+handle = function(self, run)
+  return run:dispatch()
+end
+```
 
-This matches existing line instancing behavior in [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua).
+### `inflight`
 
-### Preparation policy
+- semaphore-like admission control
+- fields:
+  - `gate_inflight_max`
+  - `gate_inflight_pending`
+  - `gate_inflight_overflow`
+- behavior:
+  - if inflight below max: admit immediately, register release callback, dispatch
+  - else enqueue in pending if capacity allows
+  - else apply overflow policy
 
-Two valid startup paths:
+## Built-in Executors
 
-1. `ensure_prepared` path
-   - if segment explicitly declares gate/executor and auto-prepare enabled
-   - line lifecycle prepares instances ahead of first message
+### `buffered` (default)
 
-2. lazy path
-   - first AsyncOp return resolves and prepares gate/executor on demand
+- owns MPSC queue + one long-lived consumer task
+- executes AsyncOp and settles run outcome
+- safe baseline for correctness and throughput
 
-This supports both eager and lazy runtime styles.
+### `direct` (expert)
+
+- minimal buffering path
+- stronger coupling between producer and executor
+- should remain optional and clearly documented
 
 ## Stop Semantics
 
-v5 keeps explicit strategy names from stop ADR direction: `stop_drain` and `stop_immediate`.
+v5 preserves explicit stop strategy names:
+
+- `stop_drain`
+- `stop_immediate`
 
 ### `stop_drain`
 
-- gate stops admitting new work
-- gate allows pending to continue dispatch
-- executor finishes in-flight and pending-dispatched work
-- stop resolves when inflight and pending are fully settled
+- gater stops admitting new entries
+- gater continues releasing pending entries as permits free up
+- executor finishes accepted work
+- stop resolves when pending and inflight reach zero
 
 ### `stop_immediate`
 
-- gate stops admitting new work
-- gate drops pending according to immediate-stop behavior
-- executor cancels active workers/tasks
-- stop resolves when cancellation and cleanup settle
-
-### Why separate gate/executor stop fields
-
-Ingress and egress may need different policy in advanced scenarios. v5 keeps independent fields (`gate_stop_type`, `executor_stop_type`) while defaulting both to `stop_drain`.
+- gater stops admitting new entries
+- pending is dropped per immediate semantics
+- executor cancels active work
+- stop resolves after cancellation and cleanup settle
 
 ## Error Propagation as Data
 
-Default behavior: async errors are attached to payload and forwarded to downstream segments.
+Default model is pass-through with structured error metadata.
 
-### Rationale
+### Why
 
-- Keeps the pipeline alive for observability and fallback handling.
-- Avoids silent task death where continuation never resumes.
-- Lets downstream policies decide drop/retry/report behavior.
+1. continuation always resumes
+2. failures remain observable in-band
+3. downstream segments can choose behavior (ignore/filter/report)
 
-### Suggested payload metadata
+### Suggested payload schema
 
 ```lua
 input._pipe_line = input._pipe_line or {}
 input._pipe_line.errors = input._pipe_line.errors or {}
 
 table.insert(input._pipe_line.errors, {
-  stage = "executor",
+  stage = "async",
   segment_type = seg.type,
   segment_id = seg.id,
-  source = line:full_source(),
   code = err.code,
   message = err.message,
   detail = err.detail,
 })
 ```
 
-If input is non-table, runtime may wrap it into a table envelope in v5. This is acceptable in a clean-slate redesign.
+For non-table payloads, wrapping into an envelope table is acceptable in v5.
 
-### Segment helper toolkit
+### Helper toolkit
 
-Add helpers (tentative [`/lua/pipe-line/errors.lua`](/lua/pipe-line/errors.lua)):
+Proposed helpers in [`/lua/pipe-line/errors.lua`](/lua/pipe-line/errors.lua):
 
 - `errors.has(input)`
 - `errors.list(input)`
 - `errors.add(input, err)`
 - `errors.guard(handler)`
 
-Common segment pattern:
+## Explicit Boundary Segments: Why Rejected
 
-```lua
-handler = errors.guard(function(run)
-  -- normal segment work only when no prior errors
-  return transform(run.input)
-end)
-```
+`acquire -> async -> release` boundary-style segments were considered and rejected.
 
-## Why Ingress as Explicit Boundary Segment Was Rejected
+Main issue: permit release correctness across all exceptional paths.
 
-A tempting design is `semaphore_acquire` + `async_work` + `semaphore_release` as explicit segments.
+- early stop paths
+- fan-out and fork continuation patterns
+- cancellation and async errors
 
-We reject this for core v5 for correctness reasons:
+Aspect settle callbacks are a safer single place for release bookkeeping.
 
-1. permit release can be skipped on early stop paths
-2. fan-out and fork semantics complicate ownership
-3. errors/cancellation create release leaks unless every path finalizes correctly
-4. pipe readability degrades back into plumbing entries
+## Run/Segment/Line Lookup
 
-Gate objects make permit lifecycle explicit in one place, with settlement hooks guaranteed by runtime.
+The architecture does not require full metatable chaining of `run -> segment -> line` for async control.
 
-## Why We Avoid Full `run -> segment -> line` Metatable Chaining
-
-The idea is attractive for config ergonomics, but v5 intentionally keeps config lookup explicit.
-
-Reasons:
-
-1. hidden lookup order is harder to debug
-2. accidental field shadowing becomes likely
-3. behavior changes when fields are added to any layer
-
-v5 should provide explicit lookup helpers instead:
+Recommended approach is explicit config lookup helper:
 
 ```lua
 run:cfg("gate_inflight_max")
 run:cfg("executor_stop_type")
 ```
 
-where `cfg` resolves deterministic scope:
+with deterministic resolution:
 
 ```
-segment -> line -> built-in default
+segment -> line -> built-in defaults
 ```
 
-## Execution Walkthrough
+This stays debuggable and avoids accidental shadowing surprises.
+
+## Execution Flows
 
 ### Sync segment
 
 ```mermaid
 sequenceDiagram
     participant run as run:execute
-    participant seg as handler
+    participant seg as segment handler
     participant next as next segment
 
     run->>seg: handler(run)
-    seg-->>run: value/nil
-    run->>next: continue inline
+    seg-->>run: value/nil/false
+    run->>next: continue or stop
 ```
 
-### Async segment (`task_fn`)
+### Async segment with aspects
 
 ```mermaid
 sequenceDiagram
     participant run as run:execute
-    participant seg as handler
-    participant gate as gate
-    participant exec as executor
+    participant seg as segment
+    participant gater as gater:handle(run)
+    participant exec as executor:handle(run)
     participant worker as worker task
     participant cont as continuation
 
     run->>seg: handler(run)
-    seg-->>run: AsyncOp(task_fn)
-    run->>run: create continuation(pos=run.pos)
-    run->>gate: submit(item, dispatch)
-    gate->>exec: dispatch(item)
-    exec->>worker: run task_fn(ctx)
-    worker-->>exec: outcome(ok/error)
-    exec->>run: item:settle(outcome)
-    run->>cont: apply outcome (value/errors)
+    seg-->>run: AsyncOp
+    run->>run: build _async state + continuation
+    run->>gater: dispatch()
+    gater->>exec: run:dispatch() (when admitted)
+    exec->>worker: execute op in task context
+    worker-->>exec: outcome
+    exec->>run: run:settle(outcome)
+    run->>cont: apply value/errors
     run->>cont: continuation:next()
 ```
 
-## Buffered Executor Notes (v5 baseline)
+## Coop Queue Constraint and v5 Baseline
 
-`coop.MpscQueue` supports many producers but only one waiting consumer task. v5 baseline should respect this.
+`coop.MpscQueue` supports multiple producers and one waiting consumer.
 
-Implications:
+v5 baseline honors that reality:
 
-- default buffered executor uses one queue consumer task
-- no pretending that multiple idle consumers can wait on one queue
-- if future multi-worker support is needed, use dispatcher + worker inboxes, not many `queue:pop()` waiters
+- one buffered executor consumer waiter per queue
+- no invalid many-waiters assumption
 
-Ingress gate still adds value in baseline by bounding pending queue growth and controlling acceptance policy.
+This does not block future expansion; it simply keeps v5 correct.
 
 ## Suggested Module Layout
 
 ```
 lua/pipe-line/
-  async.lua                 -- AsyncOp constructors: task_fn, awaitable, fail
-  gate/
-    init.lua                -- none, inflight
+  async.lua                    -- AsyncOp constructors: task_fn, awaitable, fail
+  async-runtime.lua            -- run async helpers: dispatch, settle, cfg
+  gater/
+    init.lua                   -- none, inflight
     none.lua
     inflight.lua
   executor/
-    init.lua                -- buffered, direct
+    init.lua                   -- buffered, direct
     buffered.lua
     direct.lua
-  async-runtime.lua         -- resolve gate/executor, build work item, settlement
-  run.lua                   -- detect AsyncOp and hand off to async-runtime
-  line.lua                  -- default_gate/default_executor + prepare/stop hooks
-  registry.lua              -- register/resolve gate and executor
-  errors.lua                -- error-as-data helper toolkit
+  errors.lua                   -- error metadata helpers
+  run.lua                      -- AsyncOp detection, handoff setup
+  line.lua                     -- lifecycle orchestration for segments+aspects
+  registry.lua                 -- register/resolve gater, executor, optional generic aspect
 ```
 
-## Target Changes by Existing File
+## File-Level Change Direction
 
 | File | v5 direction |
 |------|--------------|
-| [`/lua/pipe-line/run.lua`](/lua/pipe-line/run.lua) | detect AsyncOp and submit to async-runtime |
-| [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua) | add default gate/executor options and lifecycle prep/stop |
-| [`/lua/pipe-line/registry.lua`](/lua/pipe-line/registry.lua) | add `register_gate`, `resolve_gate`, `register_executor`, `resolve_executor` |
-| [`/lua/pipe-line/consumer.lua`](/lua/pipe-line/consumer.lua) | remove (fold behavior into executor implementations) |
-| [`/lua/pipe-line/driver.lua`](/lua/pipe-line/driver.lua) | replace with gate/executor model |
-| [`/lua/pipe-line/segment/mpsc.lua`](/lua/pipe-line/segment/mpsc.lua) | deprecate/remove from core async path |
+| [`/lua/pipe-line/run.lua`](/lua/pipe-line/run.lua) | detect AsyncOp, initialize `run._async`, call `run:dispatch()` |
+| [`/lua/pipe-line/line.lua`](/lua/pipe-line/line.lua) | resolve/cache `seg._aspects`, run lifecycle hooks across aspects |
+| [`/lua/pipe-line/registry.lua`](/lua/pipe-line/registry.lua) | add gater/executor registration and resolution |
+| [`/lua/pipe-line/consumer.lua`](/lua/pipe-line/consumer.lua) | remove; behavior folds into executors |
+| [`/lua/pipe-line/driver.lua`](/lua/pipe-line/driver.lua) | replace with gater/executor modules |
+| [`/lua/pipe-line/segment/mpsc.lua`](/lua/pipe-line/segment/mpsc.lua) | deprecate from core async path |
 | [`/lua/pipe-line/segment/define/transport.lua`](/lua/pipe-line/segment/define/transport.lua) | remove |
 | [`/lua/pipe-line/segment/define/transport/mpsc.lua`](/lua/pipe-line/segment/define/transport/mpsc.lua) | remove |
 
 ## Authoring Examples
 
-### Minimal async segment (preferred)
+### Segment with explicit gater/executor shorthand
 
 ```lua
 local async = require("pipe-line.async")
@@ -586,10 +585,12 @@ local uv = require("coop.uv")
 
 registry:register("file_reader", {
   type = "file_reader",
-  gate = "inflight",         -- optional; can rely on line default
-  executor = "buffered",     -- optional; can rely on line default
+  gater = "inflight",
+  executor = "buffered",
+
   gate_inflight_max = 1,
   gate_inflight_pending = 128,
+  gate_inflight_overflow = "error",
 
   handler = function(run)
     return async.task_fn(function(ctx)
@@ -611,94 +612,87 @@ registry:register("file_reader", {
 })
 ```
 
+### Segment with explicit aspect list
+
+```lua
+registry:register("custom_async", {
+  type = "custom_async",
+  aspects = {
+    require("pipe-line.gater.inflight")({ gate_inflight_max = 4 }),
+    require("pipe-line.executor.buffered")({}),
+  },
+  handler = function(run)
+    return require("pipe-line.async").task_fn(function(ctx)
+      return ctx.input
+    end)
+  end,
+})
+```
+
 ### Line defaults
 
 ```lua
 local line = pipeline({
-  default_gate = "none",
+  default_gater = "none",
   default_executor = "buffered",
 
   gate_inflight_max = nil,
   gate_inflight_pending = nil,
   gate_inflight_overflow = "error",
 
-  gate_stop_type = "stop_drain",
+  gater_stop_type = "stop_drain",
   executor_stop_type = "stop_drain",
 })
 ```
 
-### Optional eager prepare control
+## Design Decisions (Locked)
 
-```lua
-local line = pipeline({
-  gate_auto_prepare = true,
-  executor_auto_prepare = true,
-})
-```
-
-If either is false, first AsyncOp on a segment may lazily initialize the instance.
-
-## Design Decisions (Summary)
-
-1. **No explicit async boundary segments.**
-   - Pipe should represent business work steps, not transport plumbing.
-
-2. **Gate and executor are separate first-class roles.**
-   - Admission and execution concerns remain independent and composable.
-
-3. **`task_fn` AsyncOp is the primary async API.**
-   - Avoid per-message `coop.spawn` overhead.
-   - Preserve task context for async I/O wrappers.
-
-4. **Segment/line scope for async policy; no run/fact async overrides.**
-   - Predictable behavior and simpler debugging.
-
-5. **Stop semantics are explicit per role.**
-   - `stop_drain` and `stop_immediate` are required policy names.
-
-6. **Errors are data by default.**
-   - Runtime does not silently swallow async failures.
-
-7. **One-consumer queue reality is honored in baseline executor.**
-   - No invalid multi-waiter assumptions on coop MPSC queue.
+1. No explicit boundary segments for async handoff.
+2. Segment-owned aspects are the one async lifecycle extension mechanism.
+3. `gater` and `executor` both use symmetric `handle(run)`.
+4. Run remains the sole execution context object (no public async `item`).
+5. `task_fn` is the primary AsyncOp style.
+6. Stop strategy names are `stop_drain` and `stop_immediate`.
+7. Async errors are propagated as structured data by default.
 
 ## Migration Notes
 
-This is intentionally a redesign, not an adapter layer.
+This redesign intentionally breaks old assumptions.
 
 Expected breakage areas:
 
-- tests that assert explicit handoff segment behavior
-- tests that inspect queue envelopes/HANDOFF_FIELD
-- tests that rely on `run.continuation`
+- tests around explicit `mpsc_handoff`
+- tests around envelope/HANDOFF_FIELD transport payloads
+- tests relying on `run.continuation`
 - tests around `auto_start_consumers`
 
-These should be replaced with gate/executor and AsyncOp tests.
+Replace with tests for aspect dispatch, settle behavior, and gater/executor lifecycle.
 
-## Test Plan Focus for v5
+## Test Plan Focus
 
-1. `run:execute` async detection for AsyncOp and sync behavior parity.
-2. continuation cursor correctness (`pos` + `next`).
-3. gate inflight/pending accounting and overflow behavior.
-4. executor settlement exactly-once guarantees.
-5. stop strategy behavior (`stop_drain`, `stop_immediate`) for both gate and executor.
-6. error-as-data propagation through downstream segments.
-7. lifecycle idempotency (`ensure_prepared`, `ensure_stopped`).
-8. per-segment-instance gate/executor caching under auto instancing.
+1. `run:execute` AsyncOp detection and sync parity.
+2. aspect resolution/injection order and idempotent caching.
+3. `run:dispatch` chain correctness.
+4. gater inflight/pending/overflow behavior.
+5. executor settle exactly-once behavior.
+6. continuation cursor invariant (`continuation.pos = run.pos`, then `next()`).
+7. stop behavior for `stop_drain` and `stop_immediate`.
+8. error metadata propagation and downstream guards.
 
 ## Open Questions
 
-1. Should v5 accept raw awaitables directly, or require `async.awaitable(...)` wrapping for all async returns?
-2. For non-table payloads, should error propagation always wrap into an envelope table, or provide an alternate side-channel on run metadata?
-3. Should `gate_inflight_overflow = "error"` include line-level logging and structured telemetry by default?
-4. Do we want an optional fail-fast mode in core (`line.async_fail_fast = true`) in addition to default pass-through error data?
-5. Should `direct` executor be in core v5 initial cut, or deferred until buffered path and gate semantics are fully stable?
+1. Should `ensure_started` be introduced as first-class lifecycle hook now, or kept as alias while `ensure_prepared` remains canonical?
+2. Should second `run:settle(...)` call hard-error in dev mode and soft-ignore in normal mode?
+3. Should default `gate_inflight_overflow` stay `error`, or move to `drop_newest` for high-volume scenarios?
+4. Should v5 core include `direct` executor immediately or defer until buffered baseline is fully stabilized?
+5. Should `async.awaitable(...)` be required wrapper, or should raw awaitables be accepted by duck typing?
 
 ## Closing
 
-v5 keeps the best insight from v4 (implicit async via return semantics) while correcting two critical model issues:
+v5 keeps the best part of v4 (implicit async from handler return) while making execution architecture more coherent:
 
-- ingress policy is not egress execution
-- async authoring should not eagerly spawn per message
+- async runtime behavior lives in segment-owned aspects
+- ingress and egress are separate but symmetric (`handle(run)`)
+- run remains the single context object
 
-By splitting gate and executor, introducing deferred AsyncOps, and standardizing stop/error behavior, we get a model that is simpler to author, easier to reason about, and more robust under load and shutdown.
+The result is simpler authoring, clearer lifecycle behavior, better performance potential, and more reliable shutdown/error semantics.
