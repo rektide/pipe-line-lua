@@ -259,7 +259,7 @@ local function ensure_segment_aspects(line, pos, seg)
 	end
 
 	if not has_gater then
-		local gater_ref = rawget(seg, "gater")
+		local gater_ref = seg.gater
 		if gater_ref == nil then
 			gater_ref = rawget(line, "default_gater")
 		end
@@ -274,7 +274,7 @@ local function ensure_segment_aspects(line, pos, seg)
 	end
 
 	if not has_executor then
-		local executor_ref = rawget(seg, "executor")
+		local executor_ref = seg.executor
 		if executor_ref == nil then
 			executor_ref = rawget(line, "default_executor")
 		end

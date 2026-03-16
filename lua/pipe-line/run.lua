@@ -159,7 +159,7 @@ function Run:cfg(key, fallback)
 	end
 
 	if type(seg) == "table" then
-		local seg_val = rawget(seg, key)
+		local seg_val = seg[key]
 		if seg_val ~= nil then
 			return seg_val
 		end

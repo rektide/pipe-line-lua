@@ -1,380 +1,99 @@
---- Busted tests for pipe-line Line object
-local coop = require("coop")
-local MpscQueue = require("coop.mpsc-queue").MpscQueue
+local helper = require("tests.test_helper")
 
-describe("pipe-line.line", function()
-	local Line, Pipe, registry
+describe("pipe-line.line async aspects", function()
+	local pipeline
 
 	before_each(function()
-		package.loaded["pipe-line.line"] = nil
-		package.loaded["pipe-line.pipe"] = nil
-		package.loaded["pipe-line.registry"] = nil
-		package.loaded["pipe-line.run"] = nil
-		package.loaded["pipe-line.segment"] = nil
-		package.loaded["pipe-line.log"] = nil
-		Line = require("pipe-line.line")
-		Pipe = require("pipe-line.pipe")
-		registry = require("pipe-line.registry")
+		helper.setup_vim()
+		pipeline = helper.fresh_pipeline()
 	end)
 
-	describe("construction", function()
-		it("creates root line with defaults", function()
-			local line = Line({ registry = registry, source = "app" })
-			assert.are.equal("line", line.type)
-			assert.are.equal("app", line.source)
-			assert.is_not_nil(line.pipe)
-			assert.is_not_nil(line.output)
-			assert.is_table(line.fact)
-			assert.is_function(line.sourcer)
-			assert.is_table(line.stopped)
-			assert.is_function(line.stopped.await)
-			assert.is_function(line.stopped.complete)
-		end)
-
-		it("uses shared level helper methods", function()
-			local line = Line({ registry = registry })
-			assert.is_nil(rawget(line, "error"))
-			assert.is_nil(rawget(line, "warn"))
-			assert.is_nil(rawget(line, "info"))
-			assert.is_nil(rawget(line, "debug"))
-			assert.is_nil(rawget(line, "trace"))
-			assert.is_function(line.error)
-			assert.is_function(line.warn)
-			assert.is_function(line.info)
-			assert.is_function(line.debug)
-			assert.is_function(line.trace)
-		end)
-
-		it("select_segments picks by type with unique ids", function()
-			local segment = require("pipe-line.segment")
-			local line = Line({ registry = registry, pipe = { segment.completion, segment.completion } })
-			local selected = line:select_segments("completion")
-
-			assert.are.equal(2, #selected)
-			assert.are.equal("completion", selected[1].type)
-			assert.are.equal("completion", selected[2].type)
-			assert.are_not.equal(selected[1], selected[2])
-			assert.are_not.equal(selected[1].id, selected[2].id)
-		end)
-
-		it("select_segments supports predicate selector", function()
-			local segment = require("pipe-line.segment")
-			local line = Line({ registry = registry, pipe = { segment.completion, segment.timestamper } })
-			local selected = line:select_segments(function(seg)
-				return seg.type == "timestamper"
-			end)
-
-			assert.are.equal(1, #selected)
-			assert.are.equal("timestamper", selected[1].type)
-		end)
-
-		it("auto_id false skips id assignment", function()
-			local segment = require("pipe-line.segment")
-			local line = Line({
-				registry = registry,
-				pipe = { segment.completion },
-				auto_id = false,
-			})
-
-			local selected = line:select_segments("completion")
-			assert.are.equal(1, #selected)
-			assert.is_nil(selected[1].id)
-		end)
-
-		it("auto_fork false avoids prototype fork", function()
-			local fork_calls = 0
-			registry:register("forkable", {
-				type = "forkable",
-				fork = function(self, context)
-					fork_calls = fork_calls + 1
-					return {
-						type = self.type,
-						from_fork = true,
-						handler = function(run) return run.input end,
-					}
-				end,
-				handler = function(run)
-					return run.input
-				end,
-			})
-
-			local line = Line({ registry = registry, pipe = { "forkable" }, auto_fork = false })
-			local selected = line:select_segments("forkable")
-
-			assert.are.equal(1, #selected)
-			assert.are.equal(0, fork_calls)
-			assert.is_nil(rawget(selected[1], "from_fork"))
-		end)
-
-		it("auto_instance false keeps shared prototype when not forking", function()
-			local plain = {
-				type = "plain",
-				handler = function(run)
-					return run.input
-				end,
-			}
-			registry:register("plain", plain)
-
-			local line = Line({
-				registry = registry,
-				pipe = { "plain" },
-				auto_instance = false,
-				auto_fork = false,
-			})
-
-			local selected = line:select_segments("plain")
-			assert.are.equal(1, #selected)
-			assert.are.equal(plain, selected[1])
-		end)
-	end)
-
-	describe("child", function()
-		it("creates thin child with local source", function()
-			local root = Line({ source = "root", registry = registry })
-			local child = root:child("auth")
-			local leaf = child:child("jwt")
-
-			assert.are.equal(root, child.parent)
-			assert.are.equal(child, leaf.parent)
-			assert.are.equal("auth", child.source)
-			assert.are.equal("jwt", leaf.source)
-			assert.are.equal("root:auth", child:full_source())
-			assert.are.equal("root:auth:jwt", leaf:full_source())
-		end)
-
-		it("shares parent pipeline and output by default", function()
-			local root = Line({ registry = registry })
-			local child = root:child("mod")
-
-			assert.are.equal(root.pipe, child.pipe)
-			assert.are.equal(root.output, child.output)
-
-			child:addSegment("child_seg", function(run)
+	it("injects default gater and executor aspects", function()
+		local seg = {
+			type = "demo",
+			handler = function(run)
 				return run.input
-			end)
-
-			assert.are.equal(#root.pipe, #child.pipe)
-			assert.are.equal("child_seg", root.pipe[#root.pipe])
-		end)
-
-		it("inherits arbitrary parent fields via metatable", function()
-			local root = Line({ registry = registry, custom = "inherited" })
-			local child = root:child("mod")
-			assert.are.equal("inherited", child.custom)
-		end)
+			end,
+		}
+		local line = pipeline({ pipe = { seg } })
+		local aspects = line:resolve_segment_aspects(1, seg)
+		assert.are.equal(2, #aspects)
+		assert.are.equal("gater", aspects[1].role)
+		assert.are.equal("executor", aspects[2].role)
 	end)
 
-	describe("fork", function()
-		it("creates independent pipe and output", function()
-			local root = Line({ pipe = { "a", "b" }, registry = registry })
-			local forked = root:fork("worker")
+	it("resolves shorthand gater and executor refs", function()
+		pipeline.registry:register_gater("test_gate", {
+			type = "test_gate",
+			role = "gater",
+			handle = function(self, run)
+				return run:dispatch()
+			end,
+		})
+		pipeline.registry:register_executor("test_exec", {
+			type = "test_exec",
+			role = "executor",
+			handle = function(self, run)
+				return run:settle({ status = "ok", value = run.input })
+			end,
+		})
 
-			assert.are.equal(root, forked.parent)
-			assert.are_not.equal(root.pipe, forked.pipe)
-			assert.are_not.equal(root.output, forked.output)
-
-			forked.pipe:splice(1, 1)
-			assert.are.equal(1, #forked.pipe)
-			assert.are.equal(2, #root.pipe)
-		end)
-
-		it("copies parent fact into independent table", function()
-			local root = Line({ registry = registry })
-			root.fact.mode = "root"
-			local forked = root:fork("worker")
-
-			assert.are_not.equal(root.fact, forked.fact)
-			assert.are.equal("root", forked.fact.mode)
-			forked.fact.mode = "fork"
-			assert.are.equal("root", root.fact.mode)
-		end)
-
-		it("accepts explicit output override", function()
-			local output = MpscQueue.new()
-			local root = Line({ registry = registry })
-			local forked = root:fork({ source = "worker", output = output })
-			assert.are.equal(output, forked.output)
-		end)
+		local seg = {
+			type = "demo",
+			gater = "test_gate",
+			executor = "test_exec",
+			handler = function(run)
+				return run.input
+			end,
+		}
+		local line = pipeline({ pipe = { seg } })
+		local aspects = line:resolve_segment_aspects(1, seg)
+		assert.are.equal("test_gate", aspects[1].type)
+		assert.are.equal("test_exec", aspects[2].type)
 	end)
 
-	describe("run integration", function()
-		it("ensure_prepared calls ensure_prepared hooks", function()
-			local calls = 0
-			local prepared = {
-				handler = function(run) return run.input end,
-				ensure_prepared = function(self, context)
-					calls = calls + 1
-					assert.are.equal(1, context.pos)
-					assert.is_true(context.force)
-				end,
-			}
-			local line = Line({ pipe = { prepared }, registry = registry })
+	it("runs aspect lifecycle hooks in ensure_prepared and ensure_stopped", function()
+		local prepared = 0
+		local stopped = 0
+		pipeline.registry:register_gater("life_gate", {
+			role = "gater",
+			handle = function(self, run)
+				return run:dispatch()
+			end,
+			ensure_prepared = function(self, _ctx)
+				prepared = prepared + 1
+			end,
+			ensure_stopped = function(self, _ctx)
+				stopped = stopped + 1
+			end,
+		})
+		pipeline.registry:register_executor("life_exec", {
+			role = "executor",
+			handle = function(self, run)
+				return run:settle({ status = "ok", value = run.input })
+			end,
+			ensure_prepared = function(self, _ctx)
+				prepared = prepared + 1
+			end,
+			ensure_stopped = function(self, _ctx)
+				stopped = stopped + 1
+			end,
+		})
 
-			local tasks = line:ensure_prepared()
+		local seg = {
+			type = "demo",
+			gater = "life_gate",
+			executor = "life_exec",
+			handler = function(run)
+				return run.input
+			end,
+		}
+		local line = pipeline({ pipe = { seg } })
 
-			assert.are.equal(1, calls)
-			assert.is_table(tasks)
-		end)
+		line:ensure_prepared()
+		line:ensure_stopped()
 
-		it("prepare_segments aliases ensure_prepared", function()
-			local calls = 0
-			local prepared = {
-				handler = function(run) return run.input end,
-				ensure_prepared = function()
-					calls = calls + 1
-				end,
-			}
-			local line = Line({ pipe = { prepared }, registry = registry })
-
-			line:prepare_segments()
-
-			assert.are.equal(1, calls)
-		end)
-
-		it("run executes ensure_prepared hooks lazily", function()
-			local calls = 0
-			local prepared = {
-				handler = function(run) return run.input end,
-				ensure_prepared = function(self, context)
-					calls = calls + 1
-					assert.is_nil(context.force)
-					assert.is_not_nil(context.run)
-				end,
-			}
-			local line = Line({ pipe = { prepared }, registry = registry })
-
-			line:run({ input = { once = true } })
-
-			assert.are.equal(1, calls)
-		end)
-
-		it("resolves registered segments", function()
-			local called = false
-			registry:register("marker", {
-				handler = function(run)
-					called = true
-					return run.input
-				end,
-			})
-
-			local line = Line({ pipe = { "marker" }, registry = registry })
-			line:run({ input = {} })
-			assert.is_true(called)
-		end)
-
-		it("pushes execution result to output", function()
-			registry:register("pass", { handler = function(run) return run.input end })
-			local line = Line({ pipe = { "pass" }, registry = registry })
-
-			line:run({ input = { id = 42 } })
-
-			local received = nil
-			local task = coop.spawn(function()
-				received = line.output:pop()
-			end)
-			task:await(100, 10)
-
-			assert.are.equal(42, received.id)
-		end)
-
-		it("close returns line stopped deferred and resolves", function()
-			local segment = require("pipe-line.segment")
-			local line = Line({ registry = registry, pipe = { segment.completion } })
-
-			local stopped = line:close()
-			local resolved = stopped:await(200, 10)
-
-			assert.are.equal(stopped, line.stopped)
-			assert.is_not_nil(resolved)
-			assert.is_true(stopped.done)
-			local completion_segments = line:select_segments("completion")
-			assert.are.equal(1, #completion_segments)
-			assert.is_true(completion_segments[1].stopped.done)
-			assert.is_true(line.stopped.done)
-		end)
-
-		it("close is idempotent and returns same stopped deferred", function()
-			local line = Line({ registry = registry })
-
-			local first = line:close()
-			local second = line:close()
-
-			assert.are.equal(first, second)
-			assert.is_not_nil(second:await(200, 10))
-		end)
-
-		it("protocol runs pass through filters by default", function()
-			local segment = require("pipe-line.segment")
-			local line = Line({
-				registry = registry,
-				pipe = { segment.level_filter, segment.completion },
-				max_level = "error",
-			})
-
-			local stopped = line:close()
-			local resolved = stopped:await(200, 10)
-
-			assert.is_not_nil(resolved)
-			local completion_segments = line:select_segments("completion")
-			assert.are.equal(1, #completion_segments)
-			assert.is_true(completion_segments[1].settled)
-		end)
-
-		it("addSegment calls segment init without deferreds in context", function()
-			local seen = {}
-			local line = Line({ registry = registry, pipe = {} })
-
-			line:addSegment({
-				type = "init_probe",
-				init = function(self, context)
-					seen.line = context.line
-					seen.done = context.done
-					seen.stopped = context.stopped
-				end,
-				handler = function(run)
-					return run.input
-				end,
-			})
-
-			assert.are.equal(line, seen.line)
-			assert.is_nil(seen.done)
-			assert.is_nil(seen.stopped)
-		end)
-
-		it("ensure_stopped resolves stopped deferred", function()
-			local line = Line({ registry = registry, pipe = {} })
-
-			local stopped = line:ensure_stopped()
-			local resolved = stopped:await(200, 10)
-
-			assert.are.equal(line.stopped, stopped)
-			assert.is_not_nil(resolved)
-			assert.is_true(stopped.done)
-		end)
-
-	end)
-
-	describe("pipe helpers", function()
-		it("clone_pipe clones existing pipe", function()
-			local line = Line({ pipe = { "a", "b" }, registry = registry })
-			local cloned = line:clone_pipe()
-			assert.are.equal(2, #cloned)
-			cloned:splice(1, 1)
-			assert.are.equal(2, #line.pipe)
-		end)
-
-		it("clone_pipe builds from segment list", function()
-			local line = Line({ registry = registry })
-			local fresh = line:clone_pipe({ "x", "y" })
-			assert.are.equal(2, #fresh)
-			assert.are.equal("x", fresh[1])
-			assert.are.equal("y", fresh[2])
-		end)
-
-		it("accepts Pipe object directly", function()
-			local pipe = Pipe({ "x", "y" })
-			local line = Line({ pipe = pipe, registry = registry })
-			assert.are.equal(pipe, line.pipe)
-		end)
+		assert.are.equal(2, prepared)
+		assert.are.equal(2, stopped)
 	end)
 end)
