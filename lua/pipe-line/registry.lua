@@ -6,6 +6,9 @@ local M = {}
 
 M.type = "registry"
 M.segment = {}
+M.gater = {}
+M.executor = {}
+M.aspect = {}
 M.emits_index = {}
 M.rev = 0
 M._emits_by_name = {}
@@ -111,6 +114,84 @@ function M:register(name, handler)
 	end
 end
 
+---@param map_name 'gater'|'executor'|'aspect'
+---@param name string
+---@param value any
+local function register_named(self, map_name, name, value)
+	self.rev = (self.rev or 0) + 1
+	self._emits_index_cache = nil
+	self._emits_index_cache_rev = nil
+	self._emits_index_cache_parent = nil
+	self[map_name][name] = value
+end
+
+---@param map_name 'gater'|'executor'|'aspect'
+---@param name string|table|function
+---@return any
+local function resolve_named(self, map_name, name)
+	if type(name) ~= "string" then
+		return name
+	end
+
+	local map = rawget(self, map_name)
+	if type(map) == "table" then
+		local found = rawget(map, name)
+		if found ~= nil then
+			return found
+		end
+	end
+
+	local mt = getmetatable(self)
+	if mt and mt.__index then
+		local parent = mt.__index
+		if type(parent) == "table" then
+			local resolver_name = "resolve_" .. map_name
+			local resolver = parent[resolver_name]
+			if type(resolver) == "function" then
+				return resolver(parent, name)
+			end
+		end
+	end
+
+	return nil
+end
+
+---@param name string
+---@param value any
+function M:register_gater(name, value)
+	register_named(self, "gater", name, value)
+end
+
+---@param name string
+---@param value any
+function M:register_executor(name, value)
+	register_named(self, "executor", name, value)
+end
+
+---@param name string
+---@param value any
+function M:register_aspect(name, value)
+	register_named(self, "aspect", name, value)
+end
+
+---@param name string|table|function
+---@return any
+function M:resolve_gater(name)
+	return resolve_named(self, "gater", name)
+end
+
+---@param name string|table|function
+---@return any
+function M:resolve_executor(name)
+	return resolve_named(self, "executor", name)
+end
+
+---@param name string|table|function
+---@return any
+function M:resolve_aspect(name)
+	return resolve_named(self, "aspect", name)
+end
+
 --- Get effective emits index across this registry and its parents.
 --- Result is cached and invalidated when local registry rev changes
 --- or parent effective index table changes.
@@ -164,6 +245,9 @@ function M:derive(config)
 	local child = inherit.derive(self, {
 		type = "registry",
 		segment = {},
+		gater = {},
+		executor = {},
+		aspect = {},
 		emits_index = {},
 		rev = 0,
 		_emits_by_name = {},

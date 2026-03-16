@@ -1,8 +1,8 @@
 --- Run: a lightweight cursor/context that walk a line's pipe
 --- Methods live on the prototype, not copied per-instance
 --- Supports clone/fork/own for fan-out and independence
-local inherit = require("pipe-line.inherit")
-local Pipe = require("pipe-line.pipe")
+local async = require("pipe-line.async")
+local errors = require("pipe-line.errors")
 local util = require("pipe-line.util")
 
 local Run = {}
@@ -81,7 +81,13 @@ end
 function Run:execute()
 	self:sync()
 	while self.pos <= #self.pipe do
-		local seg = self.pipe[self.pos]
+		local seg
+		if self.line and type(self.line.resolve_pipe_segment) == "function" then
+			seg = self.line:resolve_pipe_segment(self.pos, true)
+		else
+			seg = self.pipe[self.pos]
+		end
+
 		if type(seg) == "string" then
 			local resolved
 			if self.line and type(self.line.resolve_segment) == "function" then
@@ -109,13 +115,22 @@ function Run:execute()
 		if handler then
 			self.segment = seg
 			local result = handler(self)
-			self.segment = nil
 			if result == false then
+				self.segment = nil
 				return nil
 			end
+
+			local op = async.normalize(result)
+			if op ~= nil then
+				self.segment = nil
+				self:_begin_async(seg, op)
+				return nil
+			end
+
 			if result ~= nil then
 				self.input = result
 			end
+			self.segment = nil
 		end
 
 		self.pos = self.pos + 1
@@ -129,6 +144,178 @@ function Run:execute()
 	end
 
 	return self.input
+end
+
+---@param key string
+---@param fallback? any
+---@return any
+function Run:cfg(key, fallback)
+	local seg = rawget(self, "segment")
+	if seg == nil then
+		local async_state = rawget(self, "_async")
+		if type(async_state) == "table" then
+			seg = async_state.segment
+		end
+	end
+
+	if type(seg) == "table" then
+		local seg_val = rawget(seg, key)
+		if seg_val ~= nil then
+			return seg_val
+		end
+	end
+
+	if self.line ~= nil then
+		local line_val = rawget(self.line, key)
+		if line_val ~= nil then
+			return line_val
+		end
+	end
+
+	return fallback
+end
+
+---@param cb function
+function Run:on_settle(cb)
+	if type(cb) ~= "function" then
+		error("on_settle requires a callback", 0)
+	end
+
+	local async_state = rawget(self, "_async")
+	if type(async_state) ~= "table" then
+		error("on_settle called without async state", 0)
+	end
+
+	table.insert(async_state.settle_cbs, cb)
+end
+
+---@return any
+function Run:dispatch()
+	local async_state = rawget(self, "_async")
+	if type(async_state) ~= "table" then
+		error("dispatch called without async state", 0)
+	end
+
+	async_state.aspect_index = async_state.aspect_index + 1
+	local aspect = async_state.aspects[async_state.aspect_index]
+	if type(aspect) ~= "table" or type(aspect.handle) ~= "function" then
+		return self:settle({
+			status = "error",
+			error = {
+				code = "async_no_aspect",
+				message = "async dispatch reached end of aspect chain",
+			},
+		})
+	end
+
+	local ok, result = pcall(function()
+		return aspect:handle(self)
+	end)
+	if not ok then
+		return self:settle({
+			status = "error",
+			error = {
+				code = "async_aspect_error",
+				message = tostring(result),
+				aspect = aspect.type,
+			},
+		})
+	end
+
+	return result
+end
+
+---@param outcome table
+---@return table|nil continuation
+function Run:settle(outcome)
+	local async_state = rawget(self, "_async")
+	if type(async_state) ~= "table" then
+		return nil
+	end
+
+	if async_state.settled then
+		return async_state.continuation
+	end
+	async_state.settled = true
+
+	if type(outcome) ~= "table" then
+		outcome = { status = "ok", value = outcome }
+	end
+
+	local continuation = async_state.continuation
+	if outcome.status == "ok" then
+		if outcome.value ~= nil then
+			continuation.input = outcome.value
+		end
+	else
+		local err = outcome.error
+		if type(err) ~= "table" then
+			err = {
+				code = "async_settle_error",
+				message = tostring(err),
+			}
+		end
+
+		err.stage = err.stage or "async"
+		if type(async_state.segment) == "table" then
+			err.segment_type = async_state.segment.type
+			err.segment_id = async_state.segment.id
+		end
+
+		continuation.input = errors.add(continuation.input, err)
+	end
+
+	for _, cb in ipairs(async_state.settle_cbs) do
+		local ok, cb_err = pcall(cb, outcome, self, async_state)
+		if not ok then
+			continuation.input = errors.add(continuation.input, {
+				stage = "async_settle_callback",
+				code = "async_settle_callback_error",
+				message = tostring(cb_err),
+			})
+		end
+	end
+
+	rawset(self, "_async", nil)
+	continuation:next()
+	return continuation
+end
+
+---@param seg any
+---@param op table
+function Run:_begin_async(seg, op)
+	local continuation = self:clone(self.input)
+	continuation.pos = self.pos
+
+	local aspects = {}
+	if type(self.line) == "table" and type(self.line.resolve_segment_aspects) == "function" then
+		aspects = self.line:resolve_segment_aspects(self.pos, seg)
+		for _, aspect in ipairs(aspects or {}) do
+			if type(aspect) == "table" and type(aspect.ensure_prepared) == "function" then
+				aspect:ensure_prepared({
+					line = self.line,
+					pos = self.pos,
+					segment = seg,
+					aspect = aspect,
+					force = false,
+				})
+			end
+		end
+	elseif type(seg) == "table" and type(seg._aspects) == "table" then
+		aspects = seg._aspects
+	end
+
+	rawset(self, "_async", {
+		segment = seg,
+		op = op,
+		continuation = continuation,
+		aspects = aspects,
+		aspect_index = 0,
+		settled = false,
+		settle_cbs = {},
+	})
+
+	self:dispatch()
 end
 
 --- Advance to next segment and continue execution

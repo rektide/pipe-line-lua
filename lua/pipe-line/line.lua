@@ -153,6 +153,147 @@ local function resolve_pipe_segment(line, pos, materialize_factory)
 	return seg
 end
 
+local function instantiate_aspect(line, seg, pos, role_hint, prototype)
+	local instance = prototype
+	if type(prototype) == "table" then
+		if type(prototype.handle) == "function" then
+			instance = setmetatable({}, { __index = prototype })
+		else
+			local mt = getmetatable(prototype)
+			if mt and type(mt.__call) == "function" then
+				instance = prototype({
+					line = line,
+					segment = seg,
+					pos = pos,
+					role = role_hint,
+				})
+			elseif type(prototype.new) == "function" then
+				instance = prototype.new({
+					line = line,
+					segment = seg,
+					pos = pos,
+					role = role_hint,
+				})
+			else
+				instance = setmetatable({}, { __index = prototype })
+			end
+		end
+	elseif type(prototype) == "function" then
+		instance = prototype({
+			line = line,
+			segment = seg,
+			pos = pos,
+			role = role_hint,
+		})
+	end
+
+	if type(instance) ~= "table" then
+		return nil
+	end
+
+	if instance.role == nil and role_hint ~= nil then
+		instance.role = role_hint
+	end
+	if instance.type == nil then
+		instance.type = tostring(instance.role or "aspect")
+	end
+
+	instance._pipe_line_line = line
+	instance._pipe_line_segment = seg
+	instance._pipe_line_role = instance.role
+	return instance
+end
+
+local function resolve_aspect_ref(line, seg, pos, ref, role_hint)
+	if ref == nil then
+		return nil
+	end
+
+	local resolved = ref
+	local registry = line.registry
+	if type(ref) == "string" and type(registry) == "table" then
+		if role_hint == "gater" and type(registry.resolve_gater) == "function" then
+			resolved = registry:resolve_gater(ref)
+		elseif role_hint == "executor" and type(registry.resolve_executor) == "function" then
+			resolved = registry:resolve_executor(ref)
+		elseif type(registry.resolve_aspect) == "function" then
+			resolved = registry:resolve_aspect(ref)
+		end
+	end
+
+	if resolved == nil then
+		return nil
+	end
+
+	if type(resolved) == "table" and rawget(resolved, "_pipe_line_line") == line then
+		return resolved
+	end
+
+	return instantiate_aspect(line, seg, pos, role_hint, resolved)
+end
+
+local function ensure_segment_aspects(line, pos, seg)
+	if type(seg) ~= "table" then
+		return {}
+	end
+
+	if type(seg._aspects) == "table" and seg._aspects_owner == line then
+		return seg._aspects
+	end
+
+	local aspects = {}
+	local has_gater = false
+	local has_executor = false
+
+	if type(seg.aspects) == "table" then
+		for _, ref in ipairs(seg.aspects) do
+			local aspect = resolve_aspect_ref(line, seg, pos, ref, nil)
+			if aspect then
+				table.insert(aspects, aspect)
+				if aspect.role == "gater" then
+					has_gater = true
+				elseif aspect.role == "executor" then
+					has_executor = true
+				end
+			end
+		end
+	end
+
+	if not has_gater then
+		local gater_ref = rawget(seg, "gater")
+		if gater_ref == nil then
+			gater_ref = rawget(line, "default_gater")
+		end
+		if gater_ref == nil then
+			gater_ref = "none"
+		end
+
+		local gater_aspect = resolve_aspect_ref(line, seg, pos, gater_ref, "gater")
+		if gater_aspect then
+			table.insert(aspects, gater_aspect)
+		end
+	end
+
+	if not has_executor then
+		local executor_ref = rawget(seg, "executor")
+		if executor_ref == nil then
+			executor_ref = rawget(line, "default_executor")
+		end
+		if executor_ref == nil then
+			executor_ref = "buffered"
+		end
+
+		local executor_aspect = resolve_aspect_ref(line, seg, pos, executor_ref, "executor")
+		if executor_aspect then
+			table.insert(aspects, executor_aspect)
+		end
+	end
+
+	seg._aspects = aspects
+	seg._aspects_owner = line
+	return aspects
+end
+
 local function call_segment_init(line, pos)
 	line._segment_init_done = line._segment_init_done or {}
 	if line._segment_init_done[pos] then
@@ -160,18 +301,35 @@ local function call_segment_init(line, pos)
 	end
 
 	local seg = resolve_pipe_segment(line, pos, true)
-	if type(seg) ~= "table" or type(seg.init) ~= "function" then
-		return
+	if type(seg) == "table" then
+		ensure_segment_aspects(line, pos, seg)
+
+		if type(seg.init) == "function" then
+			local awaited = seg:init({
+				line = line,
+				pos = pos,
+				segment = seg,
+			})
+			if awaited ~= nil and rawget(seg, "stopped") == nil then
+				seg.stopped = awaited
+			end
+		end
+
+		for _, aspect in ipairs(seg._aspects or {}) do
+			if type(aspect) == "table" and type(aspect.init) == "function" then
+				local aspect_awaited = aspect:init({
+					line = line,
+					pos = pos,
+					segment = seg,
+					aspect = aspect,
+				})
+				if aspect_awaited ~= nil and rawget(aspect, "stopped") == nil then
+					aspect.stopped = aspect_awaited
+				end
+			end
+		end
 	end
 
-	local awaited = seg:init({
-		line = line,
-		pos = pos,
-		segment = seg,
-	})
-	if awaited ~= nil and rawget(seg, "stopped") == nil then
-		seg.stopped = awaited
-	end
 	line._segment_init_done[pos] = true
 end
 
@@ -294,7 +452,9 @@ end
 function Line:ensure_prepared()
 	local tasks = {}
 	for pos = 1, #self.pipe do
+		call_segment_init(self, pos)
 		local seg = resolve_pipe_segment(self, pos, true)
+		local aspects = ensure_segment_aspects(self, pos, seg)
 
 		if type(seg) == "table" and type(seg.ensure_prepared) == "function" then
 			local awaited = seg:ensure_prepared({
@@ -304,6 +464,21 @@ function Line:ensure_prepared()
 				force = true,
 			})
 			cooputil.collect_awaitables(awaited, tasks)
+		end
+
+		if self.aspects_auto_prepare ~= false then
+			for _, aspect in ipairs(aspects or {}) do
+				if type(aspect) == "table" and type(aspect.ensure_prepared) == "function" then
+					local awaited = aspect:ensure_prepared({
+						line = self,
+						pos = pos,
+						segment = seg,
+						aspect = aspect,
+						force = true,
+					})
+					cooputil.collect_awaitables(awaited, tasks)
+				end
+			end
 		end
 	end
 
@@ -321,6 +496,7 @@ local function stop_prepared_segments(line)
 	local tasks = {}
 	for pos = 1, #line.pipe do
 		local seg = resolve_pipe_segment(line, pos, false)
+		local aspects = ensure_segment_aspects(line, pos, seg)
 		if type(seg) == "table" then
 			cooputil.collect_awaitables(seg.stopped, tasks)
 		end
@@ -333,6 +509,22 @@ local function stop_prepared_segments(line)
 				force = true,
 			})
 			cooputil.collect_awaitables(awaited, tasks)
+		end
+
+		for _, aspect in ipairs(aspects or {}) do
+			if type(aspect) == "table" then
+				cooputil.collect_awaitables(aspect.stopped, tasks)
+			end
+			if type(aspect) == "table" and type(aspect.ensure_stopped) == "function" then
+				local awaited = aspect:ensure_stopped({
+					line = line,
+					pos = pos,
+					segment = seg,
+					aspect = aspect,
+					force = true,
+				})
+				cooputil.collect_awaitables(awaited, tasks)
+			end
 		end
 	end
 
@@ -395,6 +587,13 @@ function Line:stopped_live(selector)
 			local collected = cooputil.collect_awaitables(seg.stopped)
 			for _, awaited in ipairs(collected) do
 				track_awaitable(awaited)
+			end
+
+			for _, aspect in ipairs(seg._aspects or {}) do
+				local aspect_collected = cooputil.collect_awaitables(aspect.stopped)
+				for _, awaited in ipairs(aspect_collected) do
+					track_awaitable(awaited)
+				end
 			end
 		end
 
@@ -517,6 +716,27 @@ function Line:resolve_segment(name)
 	return nil
 end
 
+---@param pos number
+---@param materialize_factory? boolean
+---@return any
+function Line:resolve_pipe_segment(pos, materialize_factory)
+	if materialize_factory == nil then
+		materialize_factory = true
+	end
+	return resolve_pipe_segment(self, pos, materialize_factory)
+end
+
+---@param pos number
+---@param seg? any
+---@return table[] aspects
+function Line:resolve_segment_aspects(pos, seg)
+	local target = seg
+	if target == nil then
+		target = resolve_pipe_segment(self, pos, true)
+	end
+	return ensure_segment_aspects(self, pos, target)
+end
+
 --- Splice segment entries into the pipeline.
 ---@param pos number Position to splice at
 ---@param delete_count number Number of entries to delete
@@ -619,6 +839,24 @@ local function new_line(config)
 		instance.auto_instance = true
 	end
 
+	if config.default_gater ~= nil then
+		instance.default_gater = config.default_gater
+	elseif not parent then
+		instance.default_gater = "none"
+	end
+
+	if config.default_executor ~= nil then
+		instance.default_executor = config.default_executor
+	elseif not parent then
+		instance.default_executor = "buffered"
+	end
+
+	if config.aspects_auto_prepare ~= nil then
+		instance.aspects_auto_prepare = config.aspects_auto_prepare
+	elseif not parent then
+		instance.aspects_auto_prepare = true
+	end
+
 	if parent then
 		instance.parent = parent
 	end
@@ -661,7 +899,10 @@ local function new_line(config)
 			and k ~= "auto_completion_done_on_close"
 			and k ~= "auto_id"
 			and k ~= "auto_fork"
-			and k ~= "auto_instance" then
+			and k ~= "auto_instance"
+			and k ~= "default_gater"
+			and k ~= "default_executor"
+			and k ~= "aspects_auto_prepare" then
 			instance[k] = v
 		end
 	end

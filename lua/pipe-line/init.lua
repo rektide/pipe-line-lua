@@ -3,11 +3,14 @@
 local Line = require("pipe-line.line")
 local Pipe = require("pipe-line.pipe")
 local Run = require("pipe-line.run")
+local Future = require("coop.future").Future
 local registry = require("pipe-line.registry")
 local segment = require("pipe-line.segment")
-local consumer = require("pipe-line.consumer")
 local outputter = require("pipe-line.outputter")
-local driver = require("pipe-line.driver")
+local async = require("pipe-line.async")
+local errors = require("pipe-line.errors")
+local gater = require("pipe-line.gater")
+local executor = require("pipe-line.executor")
 local protocol = require("pipe-line.protocol")
 local resolver = require("pipe-line.resolver")
 local inherit = require("pipe-line.inherit")
@@ -21,9 +24,11 @@ M.Pipe = Pipe
 M.Run = Run
 M.registry = registry
 M.segment = segment
-M.consumer = consumer
 M.outputter = outputter
-M.driver = driver
+M.async = async
+M.errors = errors
+M.gater = gater
+M.executor = executor
 M.protocol = protocol
 M.Future = Future
 M.resolver = resolver
@@ -40,12 +45,17 @@ registry:register("module_filter", segment.module_filter)
 registry:register("level_filter", segment.level_filter)
 registry:register("ingester", segment.ingester)
 registry:register("completion", segment.completion)
-registry:register("mpsc_handoff", segment.mpsc_handoff_factory())
 registry:register("lattice_resolver", {
 	wants = {},
 	emits = {},
 	handler = resolver.lattice_resolver,
 })
+
+registry:register_gater("none", gater.none)
+registry:register_gater("inflight", gater.inflight)
+
+registry:register_executor("buffered", executor.buffered)
+registry:register_executor("direct", executor.direct)
 
 -- Module is callable: pipe-line(config) creates a Line
 setmetatable(M, {
