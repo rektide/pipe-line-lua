@@ -111,26 +111,118 @@ function Run:execute()
 				segment = seg,
 			})
 		end
+
+		local control = nil
+		if self.line and type(self.line.resolve_segment_control) == "function" then
+			control = self.line:resolve_segment_control(self.pos, seg)
+		end
+		if type(control) == "table" and type(control.ensure_prepared) == "function" then
+			control:ensure_prepared({
+				line = self.line,
+				run = self,
+				pos = self.pos,
+				segment = seg,
+				control = control,
+				force = false,
+			})
+		end
+
+		local admitted_marker = rawget(self, "_pipe_line_admitted")
+		local already_admitted = type(admitted_marker) == "table"
+			and admitted_marker.control == control
+			and admitted_marker.pos == self.pos
+
+		if type(control) == "table" and not already_admitted and type(control.admit_or_queue) == "function" then
+			local admitted = control:admit_or_queue(self)
+			if admitted ~= true then
+				self.segment = nil
+				return nil
+			end
+		end
+
+		local handle_started = nil
+		if type(control) == "table" and type(control.timing_start) == "function" then
+			handle_started = control:timing_start("handle")
+		end
+
 		local handler = self:resolve(seg)
 		if handler then
 			self.segment = seg
-			local result = handler(self)
+			local ok, result = pcall(handler, self)
+			if not ok then
+				if type(control) == "table" then
+					if type(control.timing_end) == "function" then
+						control:timing_end("handle", handle_started)
+					end
+					if type(control.release_run) == "function" then
+						control:release_run(self, {
+							status = "error",
+							error = {
+								code = "segment_handler_error",
+								message = tostring(result),
+							},
+						})
+					end
+				end
+				self.segment = nil
+				error(result, 0)
+			end
 			if result == false then
+				if type(control) == "table" then
+					if type(control.timing_end) == "function" then
+						control:timing_end("handle", handle_started)
+					end
+					if type(control.release_run) == "function" then
+						control:release_run(self, {
+							status = "error",
+							error = {
+								code = "segment_filtered",
+								message = "segment returned false",
+							},
+						})
+					end
+				end
 				self.segment = nil
 				return nil
 			end
 
 			local op = async.normalize(result)
 			if op ~= nil then
+				if type(control) == "table" and type(control.timing_end) == "function" then
+					control:timing_end("handle", handle_started)
+				end
 				self.segment = nil
-				self:_begin_async(seg, op)
+				self:_begin_async(seg, op, control)
 				return nil
 			end
 
 			if result ~= nil then
 				self.input = result
 			end
+			if type(control) == "table" then
+				if type(control.timing_end) == "function" then
+					control:timing_end("handle", handle_started)
+				end
+				if type(control.release_run) == "function" then
+					control:release_run(self, {
+						status = "ok",
+						value = self.input,
+					})
+				end
+			end
 			self.segment = nil
+		else
+			if type(control) == "table" then
+				if type(control.timing_end) == "function" then
+					control:timing_end("handle", handle_started)
+				end
+				if type(control.release_run) == "function" then
+					control:release_run(self, {
+						status = "ok",
+						value = self.input,
+					})
+				end
+			end
 		end
 
 		self.pos = self.pos + 1
@@ -208,9 +300,17 @@ function Run:dispatch()
 		})
 	end
 
+	local dispatch_started = nil
+	if type(async_state.control) == "table" and type(async_state.control.timing_start) == "function" then
+		dispatch_started = async_state.control:timing_start("dispatch")
+	end
+
 	local ok, result = pcall(function()
 		return aspect:handle(self)
 	end)
+	if type(async_state.control) == "table" and type(async_state.control.timing_end) == "function" then
+		async_state.control:timing_end("dispatch", dispatch_started)
+	end
 	if not ok then
 		return self:settle({
 			status = "error",
@@ -276,6 +376,13 @@ function Run:settle(outcome)
 		end
 	end
 
+	if type(async_state.control) == "table" and type(async_state.control.timing_end) == "function" then
+		async_state.control:timing_end("settle", async_state.settle_started)
+	end
+	if type(async_state.control) == "table" and type(async_state.control.release_run) == "function" then
+		async_state.control:release_run(self, outcome)
+	end
+
 	rawset(self, "_async", nil)
 	continuation:next()
 	return continuation
@@ -283,14 +390,14 @@ end
 
 ---@param seg any
 ---@param op table
-function Run:_begin_async(seg, op)
+---@param control? table
+function Run:_begin_async(seg, op, control)
 	local continuation = self:clone(self.input)
 	continuation.pos = self.pos
-	local control = nil
 
 	local aspects = {}
 	if type(self.line) == "table" and type(self.line.resolve_segment_aspects) == "function" then
-		if type(self.line.resolve_segment_control) == "function" then
+		if control == nil and type(self.line.resolve_segment_control) == "function" then
 			control = self.line:resolve_segment_control(self.pos, seg)
 		end
 		aspects = self.line:resolve_segment_aspects(self.pos, seg)
@@ -319,8 +426,15 @@ function Run:_begin_async(seg, op)
 		aspects = aspects,
 		aspect_index = 0,
 		settled = false,
+		settle_started = type(control) == "table" and type(control.timing_start) == "function"
+			and control:timing_start("settle")
+			or nil,
 		settle_cbs = {},
 	})
+
+	if type(control) == "table" and type(control.bind_async_run) == "function" then
+		control:bind_async_run(self)
+	end
 
 	self:dispatch()
 end

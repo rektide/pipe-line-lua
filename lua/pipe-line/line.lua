@@ -263,7 +263,6 @@ local function ensure_segment_aspects(line, pos, seg)
 	ensure_segment_control(line, pos, seg)
 
 	local aspects = {}
-	local has_gater = false
 	local has_executor = false
 
 	if type(seg.aspects) == "table" then
@@ -271,27 +270,10 @@ local function ensure_segment_aspects(line, pos, seg)
 			local aspect = resolve_aspect_ref(line, seg, pos, ref, nil)
 			if aspect then
 				table.insert(aspects, aspect)
-				if aspect.role == "gater" then
-					has_gater = true
-				elseif aspect.role == "executor" then
+				if aspect.role == "executor" then
 					has_executor = true
 				end
 			end
-		end
-	end
-
-	if not has_gater then
-		local gater_ref = seg.gater
-		if gater_ref == nil then
-			gater_ref = rawget(line, "default_gater")
-		end
-		if gater_ref == nil then
-			gater_ref = "none"
-		end
-
-		local gater_aspect = resolve_aspect_ref(line, seg, pos, gater_ref, "gater")
-		if gater_aspect then
-			table.insert(aspects, gater_aspect)
 		end
 	end
 
@@ -480,6 +462,16 @@ function Line:ensure_prepared()
 		local seg = resolve_pipe_segment(self, pos, true)
 		local aspects = ensure_segment_aspects(self, pos, seg)
 		local control = ensure_segment_control(self, pos, seg)
+		if type(control) == "table" and type(control.ensure_prepared) == "function" then
+			local awaited = control:ensure_prepared({
+				line = self,
+				pos = pos,
+				segment = seg,
+				control = control,
+				force = true,
+			})
+			cooputil.collect_awaitables(awaited, tasks)
+		end
 
 		if type(seg) == "table" and type(seg.ensure_prepared) == "function" then
 			local awaited = seg:ensure_prepared({
@@ -529,6 +521,16 @@ local function stop_prepared_segments(line)
 			cooputil.collect_awaitables(seg.stopped, tasks)
 		end
 		if type(control) == "table" then
+			if type(control.request_stop) == "function" then
+				local awaited = control:request_stop({
+					line = line,
+					pos = pos,
+					segment = seg,
+					control = control,
+					force = true,
+				})
+				cooputil.collect_awaitables(awaited, tasks)
+			end
 			cooputil.collect_awaitables(control.stopped, tasks)
 		end
 
@@ -872,12 +874,6 @@ local function new_line(config)
 		instance.auto_instance = true
 	end
 
-	if config.default_gater ~= nil then
-		instance.default_gater = config.default_gater
-	elseif not parent then
-		instance.default_gater = "none"
-	end
-
 	if config.default_executor ~= nil then
 		instance.default_executor = config.default_executor
 	elseif not parent then
@@ -933,7 +929,6 @@ local function new_line(config)
 			and k ~= "auto_id"
 			and k ~= "auto_fork"
 			and k ~= "auto_instance"
-			and k ~= "default_gater"
 			and k ~= "default_executor"
 			and k ~= "aspects_auto_prepare" then
 			instance[k] = v

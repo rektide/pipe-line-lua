@@ -12,14 +12,6 @@ local function is_task_active(task)
 	return task:status() ~= "dead"
 end
 
-local function stop_type_from_context(context)
-	local seg = context and context.segment
-	local line = context and context.line
-	return (type(seg) == "table" and seg.executor_stop_type)
-		or (type(line) == "table" and line.executor_stop_type)
-		or "stop_drain"
-end
-
 local function is_stopped(stopped)
 	return type(stopped) == "table" and stopped.done == true
 end
@@ -163,11 +155,13 @@ function M.new(config)
 
 	aspect.ensure_stopped = function(self, context)
 		local control = (context and context.control) or self.control
-		local mode = stop_type_from_context(context)
+		local mode = "stop_drain"
 		if type(control) == "table" then
 			self.control = control
-			control:request_stop(mode)
-			mode = control.stop_type or mode
+			control:request_stop(context)
+			if control:is_stop_immediate() then
+				mode = "stop_immediate"
+			end
 		end
 
 		self.stop_mode = mode

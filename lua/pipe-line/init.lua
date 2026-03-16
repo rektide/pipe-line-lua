@@ -9,7 +9,6 @@ local segment = require("pipe-line.segment")
 local outputter = require("pipe-line.outputter")
 local async = require("pipe-line.async")
 local errors = require("pipe-line.errors")
-local gater = require("pipe-line.gater")
 local executor = require("pipe-line.executor")
 local protocol = require("pipe-line.protocol")
 local resolver = require("pipe-line.resolver")
@@ -27,7 +26,6 @@ M.segment = segment
 M.outputter = outputter
 M.async = async
 M.errors = errors
-M.gater = gater
 M.executor = executor
 M.protocol = protocol
 M.Future = Future
@@ -44,15 +42,13 @@ registry:register("cloudevent", segment.cloudevent)
 registry:register("module_filter", segment.module_filter)
 registry:register("level_filter", segment.level_filter)
 registry:register("ingester", segment.ingester)
+registry:register("gate", segment.gate)
 registry:register("completion", segment.completion)
 registry:register("lattice_resolver", {
 	wants = {},
 	emits = {},
 	handler = resolver.lattice_resolver,
 })
-
-registry:register_gater("none", gater.none)
-registry:register_gater("inflight", gater.inflight)
 
 registry:register_executor("buffered", executor.buffered)
 registry:register_executor("direct", executor.direct)
