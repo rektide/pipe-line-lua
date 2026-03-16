@@ -189,15 +189,14 @@ Aspects use symmetric data-plane naming and shared lifecycle hooks.
 ---@field handle fun(self, run: table): any
 ---@field init? fun(self, context: table): table|nil
 ---@field ensure_prepared? fun(self, context: table): table|nil
----@field ensure_started? fun(self, context: table): table|nil
 ---@field ensure_stopped? fun(self, context: table): table|nil
 ```
 
 Notes:
 
 - `handle(run)` is required for active aspects in async chain.
-- `ensure_prepared` remains compatible with existing line lifecycle terminology.
-- `ensure_started` can be added as alias/newer naming if desired; v5 can support both.
+- `ensure_prepared` is the canonical startup hook in v5.
+- `ensure_started` is out of scope for v5 and should not be introduced in this iteration.
 
 ## Gater and Executor as Aspects
 
@@ -244,8 +243,6 @@ For each segment instance:
 1. `segment:init(context)` then each `aspect:init(context)`
 2. `segment:ensure_prepared(context)` then each `aspect:ensure_prepared(context)`
 3. `segment:ensure_stopped(context)` then each `aspect:ensure_stopped(context)`
-
-If `ensure_started` is implemented, run it where the project decides startup should become active; for compatibility, `ensure_prepared` remains the primary hook.
 
 ## Dispatch Semantics
 
@@ -330,7 +327,7 @@ No run-level policy overrides.
 | `gate_inflight_overflow` | `"error"` | overflow policy: `error`, `drop_newest`, `drop_oldest` |
 | `gater_stop_type` | `"stop_drain"` | gater stop strategy |
 | `executor_stop_type` | `"stop_drain"` | executor stop strategy |
-| `aspects_auto_prepare` | `true` | prepare/start aspect runtime during lifecycle |
+| `aspects_auto_prepare` | `true` | run `ensure_prepared` on aspects during lifecycle |
 
 ### Segment-level override
 
@@ -681,11 +678,10 @@ Replace with tests for aspect dispatch, settle behavior, and gater/executor life
 
 ## Open Questions
 
-1. Should `ensure_started` be introduced as first-class lifecycle hook now, or kept as alias while `ensure_prepared` remains canonical?
-2. Should second `run:settle(...)` call hard-error in dev mode and soft-ignore in normal mode?
-3. Should default `gate_inflight_overflow` stay `error`, or move to `drop_newest` for high-volume scenarios?
-4. Should v5 core include `direct` executor immediately or defer until buffered baseline is fully stabilized?
-5. Should `async.awaitable(...)` be required wrapper, or should raw awaitables be accepted by duck typing?
+1. Should second `run:settle(...)` call hard-error in dev mode and soft-ignore in normal mode?
+2. Should default `gate_inflight_overflow` stay `error`, or move to `drop_newest` for high-volume scenarios?
+3. Should v5 core include `direct` executor immediately or defer until buffered baseline is fully stabilized?
+4. Should `async.awaitable(...)` be required wrapper, or should raw awaitables be accepted by duck typing?
 
 ## Closing
 
