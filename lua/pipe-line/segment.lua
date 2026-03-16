@@ -4,14 +4,8 @@ local M = {}
 local logutil = require("pipe-line.log")
 local completion = require("pipe-line.segment.completion")
 local define = require("pipe-line.segment.define")
-local mpsc = require("pipe-line.segment.mpsc")
-
-M.HANDOFF_FIELD = mpsc.HANDOFF_FIELD
 
 M.define = define.define
-M.mpsc_handoff_factory = mpsc.mpsc_handoff_factory
-M.mpsc_handoff = mpsc.mpsc_handoff
-M.is_mpsc_handoff = mpsc.is_mpsc_handoff
 
 --- Timestamper segment: add hrtime timestamp
 M.timestamper = M.define({

@@ -4,7 +4,6 @@ local inherit = require("pipe-line.inherit")
 local Pipe = require("pipe-line.pipe")
 local coop = require("coop")
 local cooputil = require("pipe-line.coop")
-local segment = require("pipe-line.segment")
 local logutil = require("pipe-line.log")
 local Future = require("coop.future").Future
 local util = require("pipe-line.util")
@@ -785,17 +784,6 @@ function Line:addSegment(segment, handler_or_pos, pos)
 	insert_pos = insert_pos or (#self.pipe + 1)
 	self:spliceSegment(insert_pos, 0, inserted)
 	return inserted
-end
-
---- Add an explicit async queue boundary segment.
----@param pos? number Position to insert boundary (default: end)
----@param config? table { queue?: table, strategy?: 'self'|'clone'|'fork' }
----@return table handoff The inserted mpsc_handoff segment
-function Line:addHandoff(pos, config)
-	local handoff = segment.mpsc_handoff(config)
-	pos = pos or (#self.pipe + 1)
-	self:spliceSegment(pos, 0, handoff)
-	return handoff
 end
 
 --- Construct a new Line.
