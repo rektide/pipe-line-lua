@@ -3,21 +3,24 @@ local helper = require("tests.test_helper")
 describe("pipe-line.gater.inflight", function()
 	local inflight
 	local async
+	local AsyncControl
 
 	before_each(function()
 		helper.setup_vim()
 		helper.reset_pipeline_modules()
 		inflight = require("pipe-line.gater.inflight")
 		async = require("pipe-line.async")
+		AsyncControl = require("pipe-line.async.control")
 	end)
 
-	local function fake_run(config)
+	local function fake_run(config, control)
 		local settle_cbs = {}
 		local run = {
 			_async = {
 				op = async.task_fn(function()
 					return true
 				end),
+				control = control,
 			},
 			dispatched = 0,
 			settled = nil,
@@ -55,7 +58,9 @@ describe("pipe-line.gater.inflight", function()
 
 	it("admits immediately under inflight limit", function()
 		local gate = inflight()
-		local run = fake_run({ gate_inflight_max = 1 })
+		local control = AsyncControl({})
+		gate:ensure_prepared({ control = control })
+		local run = fake_run({ gate_inflight_max = 1 }, control)
 		gate:handle(run)
 		assert.are.equal(1, run.dispatched)
 		assert.are.equal(1, gate.inflight)
@@ -63,8 +68,10 @@ describe("pipe-line.gater.inflight", function()
 
 	it("queues when inflight is full and pending allows", function()
 		local gate = inflight()
-		local r1 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 1 })
-		local r2 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 1 })
+		local control = AsyncControl({})
+		gate:ensure_prepared({ control = control })
+		local r1 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 1 }, control)
+		local r2 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 1 }, control)
 
 		gate:handle(r1)
 		gate:handle(r2)
@@ -80,8 +87,10 @@ describe("pipe-line.gater.inflight", function()
 
 	it("settles overflow error when pending is full", function()
 		local gate = inflight()
-		local r1 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 0, gate_inflight_overflow = "error" })
-		local r2 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 0, gate_inflight_overflow = "error" })
+		local control = AsyncControl({})
+		gate:ensure_prepared({ control = control })
+		local r1 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 0, gate_inflight_overflow = "error" }, control)
+		local r2 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 0, gate_inflight_overflow = "error" }, control)
 
 		gate:handle(r1)
 		gate:handle(r2)
@@ -93,8 +102,10 @@ describe("pipe-line.gater.inflight", function()
 
 	it("drops pending runs on stop_immediate", function()
 		local gate = inflight()
-		local r1 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 1 })
-		local r2 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 1 })
+		local control = AsyncControl({})
+		gate:ensure_prepared({ control = control })
+		local r1 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 1 }, control)
+		local r2 = fake_run({ gate_inflight_max = 1, gate_inflight_pending = 1 }, control)
 
 		gate:handle(r1)
 		gate:handle(r2)

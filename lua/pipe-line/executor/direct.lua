@@ -51,19 +51,29 @@ function M.new(config)
 		type = "executor.direct",
 		role = "executor",
 		runner = nil,
+		control = nil,
 		accepting = true,
 		stop_requested = false,
 		stop_mode = nil,
 		waiting = false,
 		running = false,
 		current_run = nil,
+		component_stopped = false,
 		stopped = Future.new(),
 	}
 
 	local stop_signal = {}
 
+	local function mark_component_stopped(self)
+		if not self.component_stopped and type(self.control) == "table" then
+			self.component_stopped = true
+			self.control:mark_component_stopped(self)
+		end
+	end
+
 	local function execute_run(self, run)
-		if self.stop_mode == "stop_immediate" then
+		local control = (run._async and run._async.control) or self.control
+		if type(control) == "table" and control:is_stop_immediate() then
 			safe_settle(run, stop_outcome("executor_stop_immediate", "executor stopped immediately"))
 			return
 		end
@@ -80,7 +90,7 @@ function M.new(config)
 		}
 		local outcome = async.execute(a.op, context)
 
-		if self.stop_mode == "stop_immediate" then
+		if type(control) == "table" and control:is_stop_immediate() then
 			outcome = stop_outcome("executor_stop_immediate", "executor stopped immediately")
 		end
 
@@ -96,6 +106,7 @@ function M.new(config)
 				type = self.type,
 			})
 		end
+		mark_component_stopped(self)
 	end
 
 	local function ensure_runner(self)
@@ -140,6 +151,15 @@ function M.new(config)
 	end
 
 	aspect.handle = function(self, run)
+		local control = (run._async and run._async.control) or self.control
+		if type(control) == "table" then
+			self.control = control
+			if control:is_stop_immediate() then
+				run:settle(stop_outcome("executor_stop_immediate", "executor stopped immediately"))
+				return nil
+			end
+		end
+
 		if not self.accepting then
 			run:settle(stop_outcome("executor_not_accepting", "executor is not accepting new runs"))
 			return nil
@@ -162,43 +182,77 @@ function M.new(config)
 		return nil
 	end
 
-	aspect.ensure_prepared = function(self, _context)
+	aspect.ensure_prepared = function(self, context)
 		if is_stopped(self.stopped) then
 			self.stopped = Future.new()
 		end
+
+		local control = context and context.control
+		if type(control) == "table" then
+			self.control = control
+			control:register_component(self)
+		end
+
 		self.accepting = true
 		self.stop_requested = false
 		self.stop_mode = nil
+		self.component_stopped = false
 		return ensure_runner(self)
 	end
 
 	aspect.ensure_stopped = function(self, context)
-		if is_stopped(self.stopped) then
-			return self.stopped
+		local control = (context and context.control) or self.control
+		local mode = stop_type_from_context(context)
+		if type(control) == "table" then
+			self.control = control
+			control:request_stop(mode)
+			mode = control.stop_type or mode
 		end
 
-		self.accepting = false
+		self.stop_mode = mode
 		self.stop_requested = true
-		self.stop_mode = stop_type_from_context(context)
 
-		if not is_task_active(self.runner) then
-			complete_stopped(self)
-			return self.stopped
+		if mode == "stop_immediate" then
+			self.accepting = false
+			if is_task_active(self.runner) then
+				pcall(function()
+					self.runner:cancel()
+				end)
+				if self.waiting and is_task_active(self.runner) then
+					pcall(function()
+						self.runner:resume(stop_signal)
+					end)
+				end
+			else
+				complete_stopped(self)
+			end
+			return (type(control) == "table" and control.stopped) or self.stopped
 		end
 
-		if self.stop_mode == "stop_immediate" then
-			pcall(function()
-				self.runner:cancel()
+		if type(control) == "table" then
+			control:on_drained(function()
+				self.accepting = false
+				self.stop_requested = true
+				if is_task_active(self.runner) and self.waiting then
+					pcall(function()
+						self.runner:resume(stop_signal)
+					end)
+				elseif not is_task_active(self.runner) then
+					complete_stopped(self)
+				end
 			end)
+		else
+			self.accepting = false
+			if is_task_active(self.runner) and self.waiting then
+				pcall(function()
+					self.runner:resume(stop_signal)
+				end)
+			elseif not is_task_active(self.runner) then
+				complete_stopped(self)
+			end
 		end
 
-		if self.waiting and is_task_active(self.runner) then
-			pcall(function()
-				self.runner:resume(stop_signal)
-			end)
-		end
-
-		return self.stopped
+		return (type(control) == "table" and control.stopped) or self.stopped
 	end
 
 	return aspect

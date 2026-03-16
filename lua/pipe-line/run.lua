@@ -286,9 +286,13 @@ end
 function Run:_begin_async(seg, op)
 	local continuation = self:clone(self.input)
 	continuation.pos = self.pos
+	local control = nil
 
 	local aspects = {}
 	if type(self.line) == "table" and type(self.line.resolve_segment_aspects) == "function" then
+		if type(self.line.resolve_segment_control) == "function" then
+			control = self.line:resolve_segment_control(self.pos, seg)
+		end
 		aspects = self.line:resolve_segment_aspects(self.pos, seg)
 		for _, aspect in ipairs(aspects or {}) do
 			if type(aspect) == "table" and type(aspect.ensure_prepared) == "function" then
@@ -297,16 +301,19 @@ function Run:_begin_async(seg, op)
 					pos = self.pos,
 					segment = seg,
 					aspect = aspect,
+					control = control,
 					force = false,
 				})
 			end
 		end
 	elseif type(seg) == "table" and type(seg._aspects) == "table" then
 		aspects = seg._aspects
+		control = seg._async_control
 	end
 
 	rawset(self, "_async", {
 		segment = seg,
+		control = control,
 		op = op,
 		continuation = continuation,
 		aspects = aspects,

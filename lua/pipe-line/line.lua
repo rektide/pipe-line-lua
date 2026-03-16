@@ -4,6 +4,7 @@ local inherit = require("pipe-line.inherit")
 local Pipe = require("pipe-line.pipe")
 local coop = require("coop")
 local cooputil = require("pipe-line.coop")
+local AsyncControl = require("pipe-line.async.control")
 local logutil = require("pipe-line.log")
 local Future = require("coop.future").Future
 local util = require("pipe-line.util")
@@ -231,6 +232,25 @@ local function resolve_aspect_ref(line, seg, pos, ref, role_hint)
 	return instantiate_aspect(line, seg, pos, role_hint, resolved)
 end
 
+local function ensure_segment_control(line, pos, seg)
+	if type(seg) ~= "table" then
+		return nil
+	end
+
+	if type(seg._async_control) == "table" and seg._async_control_owner == line then
+		return seg._async_control
+	end
+
+	local control = AsyncControl({
+		line = line,
+		segment = seg,
+		pos = pos,
+	})
+	seg._async_control = control
+	seg._async_control_owner = line
+	return control
+end
+
 local function ensure_segment_aspects(line, pos, seg)
 	if type(seg) ~= "table" then
 		return {}
@@ -239,6 +259,8 @@ local function ensure_segment_aspects(line, pos, seg)
 	if type(seg._aspects) == "table" and seg._aspects_owner == line then
 		return seg._aspects
 	end
+
+	ensure_segment_control(line, pos, seg)
 
 	local aspects = {}
 	local has_gater = false
@@ -302,12 +324,14 @@ local function call_segment_init(line, pos)
 	local seg = resolve_pipe_segment(line, pos, true)
 	if type(seg) == "table" then
 		ensure_segment_aspects(line, pos, seg)
+		local control = ensure_segment_control(line, pos, seg)
 
 		if type(seg.init) == "function" then
 			local awaited = seg:init({
 				line = line,
 				pos = pos,
 				segment = seg,
+				control = control,
 			})
 			if awaited ~= nil and rawget(seg, "stopped") == nil then
 				seg.stopped = awaited
@@ -321,6 +345,7 @@ local function call_segment_init(line, pos)
 					pos = pos,
 					segment = seg,
 					aspect = aspect,
+					control = control,
 				})
 				if aspect_awaited ~= nil and rawget(aspect, "stopped") == nil then
 					aspect.stopped = aspect_awaited
@@ -454,12 +479,14 @@ function Line:ensure_prepared()
 		call_segment_init(self, pos)
 		local seg = resolve_pipe_segment(self, pos, true)
 		local aspects = ensure_segment_aspects(self, pos, seg)
+		local control = ensure_segment_control(self, pos, seg)
 
 		if type(seg) == "table" and type(seg.ensure_prepared) == "function" then
 			local awaited = seg:ensure_prepared({
 				line = self,
 				pos = pos,
 				segment = seg,
+				control = control,
 				force = true,
 			})
 			cooputil.collect_awaitables(awaited, tasks)
@@ -473,6 +500,7 @@ function Line:ensure_prepared()
 						pos = pos,
 						segment = seg,
 						aspect = aspect,
+						control = control,
 						force = true,
 					})
 					cooputil.collect_awaitables(awaited, tasks)
@@ -496,8 +524,12 @@ local function stop_prepared_segments(line)
 	for pos = 1, #line.pipe do
 		local seg = resolve_pipe_segment(line, pos, false)
 		local aspects = ensure_segment_aspects(line, pos, seg)
+		local control = ensure_segment_control(line, pos, seg)
 		if type(seg) == "table" then
 			cooputil.collect_awaitables(seg.stopped, tasks)
+		end
+		if type(control) == "table" then
+			cooputil.collect_awaitables(control.stopped, tasks)
 		end
 
 		if type(seg) == "table" and type(seg.ensure_stopped) == "function" then
@@ -505,6 +537,7 @@ local function stop_prepared_segments(line)
 				line = line,
 				pos = pos,
 				segment = seg,
+				control = control,
 				force = true,
 			})
 			cooputil.collect_awaitables(awaited, tasks)
@@ -520,6 +553,7 @@ local function stop_prepared_segments(line)
 					pos = pos,
 					segment = seg,
 					aspect = aspect,
+					control = control,
 					force = true,
 				})
 				cooputil.collect_awaitables(awaited, tasks)
@@ -723,6 +757,17 @@ function Line:resolve_pipe_segment(pos, materialize_factory)
 		materialize_factory = true
 	end
 	return resolve_pipe_segment(self, pos, materialize_factory)
+end
+
+---@param pos number
+---@param seg? any
+---@return table|nil control
+function Line:resolve_segment_control(pos, seg)
+	local target = seg
+	if target == nil then
+		target = resolve_pipe_segment(self, pos, true)
+	end
+	return ensure_segment_control(self, pos, target)
 end
 
 ---@param pos number
