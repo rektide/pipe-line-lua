@@ -1,4 +1,6 @@
 local M = {}
+local coop = require("coop")
+local task = require("coop.task")
 
 local ASYNC_OP_TYPE = "async_op"
 local ASYNC_FAIL_FIELD = "__pipe_line_async_fail"
@@ -18,6 +20,13 @@ local function normalize_error(err, fallback_code)
 		code = fallback_code or "async_error",
 		message = tostring(err),
 	}
+end
+
+local function protected_call(fn, ...)
+	if type(coop.copcall) == "function" and type(task.running) == "function" and task.running() ~= nil then
+		return coop.copcall(fn, ...)
+	end
+	return pcall(fn, ...)
 end
 
 ---@param value any
@@ -101,7 +110,7 @@ end
 
 local function await_awaitable(awaitable)
 	if type(awaitable.pawait) == "function" then
-		local called, ok, value = pcall(function()
+		local called, ok, value = protected_call(function()
 			return awaitable:pawait()
 		end)
 		if not called then
@@ -129,7 +138,7 @@ local function await_awaitable(awaitable)
 	end
 
 	if type(awaitable.await) == "function" then
-		local ok, value = pcall(function()
+		local ok, value = protected_call(function()
 			return awaitable:await()
 		end)
 		if not ok then
@@ -172,7 +181,7 @@ function M.execute(op, ctx)
 	end
 
 	if op.kind == "task_fn" then
-		local ok, value = pcall(op.fn, ctx)
+		local ok, value = protected_call(op.fn, ctx)
 		if not ok then
 			return {
 				status = "error",

@@ -77,28 +77,29 @@ Given current architecture, synchronous-only is simpler and safer.
 - docs and type annotations match real behavior
 - runtime errors if async awaitables are returned when unsupported
 
-## P0: Executor Direct Mode Semantics
+## P1: Executor Direct Mode Hardening
 
 ### Problem
 
-[`/lua/pipe-line/executor/direct.lua`](/lua/pipe-line/executor/direct.lua) currently reuses buffered behavior and does not provide distinct low-overhead direct semantics.
+[`/lua/pipe-line/executor/direct.lua`](/lua/pipe-line/executor/direct.lua) now provides distinct direct semantics (single runner, no buffering, busy rejection). The remaining gap is hardening and operational clarity.
 
 ### Why this matters
 
-- config values imply behavior that is not actually distinct
-- users cannot reason about performance differences
+- direct mode has intentionally stricter behavior than buffered mode
+- operators need clear guidance about when to use it safely
 
 ### Recommendation
 
-Either:
+Keep direct executor and tighten documentation and invariants:
 
-- implement real direct handoff semantics, or
-- remove/defer direct executor until real implementation exists
+- guarantee single outstanding run behavior
+- define busy policy explicitly (`executor_direct_busy`)
+- document cancellation behavior under `stop_immediate`
 
 ### Success criteria
 
-- direct mode has clearly documented and tested behavior differences
-- or it is removed from defaults/registry until ready
+- direct mode has stable and documented invariants
+- tests cover busy rejection, settle behavior, and stop paths
 
 ## P1: Naming and Configuration Consistency
 
@@ -200,7 +201,7 @@ Add a small live Neovim integration lane for critical async paths:
 
 1. unify stop state machine for gater/executor coordination
 2. lock `ensure_prepared` contract and enforce it
-3. decide direct executor fate (implement or remove)
+3. harden direct executor invariants and docs
 4. normalize config naming and update docs
 5. finish splice lifecycle cleanup
 6. add observability counters/hooks
