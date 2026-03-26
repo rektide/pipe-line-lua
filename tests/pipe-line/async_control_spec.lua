@@ -26,8 +26,8 @@ describe("pipe-line.async.control", function()
 
 	it("tracks inflight admission and drains on settle", function()
 		local control = AsyncControl({})
-		local gater = {}
-		control:register_component(gater)
+		local comp = {}
+		control:register_component(comp)
 
 		local run = fake_run()
 		control:mark_admitted(run)
@@ -40,7 +40,7 @@ describe("pipe-line.async.control", function()
 		assert.are.equal(0, control.inflight)
 		assert.is_true(control.drained.done)
 
-		control:mark_component_stopped(gater)
+		control:mark_component_stopped(comp)
 		assert.is_true(control.stopped.done)
 	end)
 
