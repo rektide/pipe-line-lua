@@ -6,7 +6,6 @@ local M = {}
 
 M.type = "registry"
 M.segment = {}
-M.gater = {}
 M.executor = {}
 M.aspect = {}
 M.emits_index = {}
@@ -114,7 +113,7 @@ function M:register(name, handler)
 	end
 end
 
----@param map_name 'gater'|'executor'|'aspect'
+---@param map_name 'executor'|'aspect'
 ---@param name string
 ---@param value any
 local function register_named(self, map_name, name, value)
@@ -125,7 +124,7 @@ local function register_named(self, map_name, name, value)
 	self[map_name][name] = value
 end
 
----@param map_name 'gater'|'executor'|'aspect'
+---@param map_name 'executor'|'aspect'
 ---@param name string|table|function
 ---@return any
 local function resolve_named(self, map_name, name)
@@ -158,12 +157,6 @@ end
 
 ---@param name string
 ---@param value any
-function M:register_gater(name, value)
-	register_named(self, "gater", name, value)
-end
-
----@param name string
----@param value any
 function M:register_executor(name, value)
 	register_named(self, "executor", name, value)
 end
@@ -172,12 +165,6 @@ end
 ---@param value any
 function M:register_aspect(name, value)
 	register_named(self, "aspect", name, value)
-end
-
----@param name string|table|function
----@return any
-function M:resolve_gater(name)
-	return resolve_named(self, "gater", name)
 end
 
 ---@param name string|table|function
@@ -245,7 +232,6 @@ function M:derive(config)
 	local child = inherit.derive(self, {
 		type = "registry",
 		segment = {},
-		gater = {},
 		executor = {},
 		aspect = {},
 		emits_index = {},
