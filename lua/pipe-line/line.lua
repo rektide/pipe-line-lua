@@ -212,9 +212,7 @@ local function resolve_aspect_ref(line, seg, pos, ref, role_hint)
 	local resolved = ref
 	local registry = line.registry
 	if type(ref) == "string" and type(registry) == "table" then
-		if role_hint == "gater" and type(registry.resolve_gater) == "function" then
-			resolved = registry:resolve_gater(ref)
-		elseif role_hint == "executor" and type(registry.resolve_executor) == "function" then
+		if role_hint == "executor" and type(registry.resolve_executor) == "function" then
 			resolved = registry:resolve_executor(ref)
 		elseif type(registry.resolve_aspect) == "function" then
 			resolved = registry:resolve_aspect(ref)
